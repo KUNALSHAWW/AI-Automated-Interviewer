@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+.env
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+*.log
+
+# Build outputs
+frontend/dist/
+*.egg
+*.whl
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.*.local
+
+# Interview history (may contain sensitive data)
+backend/interview_history/*.json
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
