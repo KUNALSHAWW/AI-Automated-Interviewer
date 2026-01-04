@@ -36,6 +36,8 @@ frontend/dist/
 
 # Interview history (may contain sensitive data)
 backend/interview_history/*.json
+backend/reports/*.pdf
+backend/reports/*.json
 
 # Temporary files
 *.tmp
