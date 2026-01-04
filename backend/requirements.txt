@@ -23,5 +23,6 @@ numpy==1.26.3
 pydantic==2.6.0
 python-multipart==0.0.9
 
-# Optional: Report Generation
+# Report Generation (PDF)
 reportlab==4.0.9
+matplotlib==3.8.2

@@ -20,7 +20,10 @@ class Config:
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     
     # === Model Configuration ===
-    # LLM for evaluation (Groq is fast + free)
+    # Fast LLM for real-time evaluation (sub-300ms responses)
+    FAST_LLM_MODEL: str = os.getenv("FAST_LLM_MODEL", "llama-3.1-8b-instant")
+    
+    # Heavy LLM for final report generation (depth over speed)
     LLM_MODEL: str = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
     
     # Vision model (Groq Llama 4 Scout)
@@ -52,6 +55,9 @@ class Config:
     # === Server Settings ===
     SERVER_HOST: str = os.getenv("SERVER_HOST", "0.0.0.0")
     SERVER_PORT: int = int(os.getenv("SERVER_PORT", "8000"))
+    
+    # === Report Generation ===
+    REPORTS_DIR: str = os.getenv("REPORTS_DIR", "reports")
     
     @classmethod
     def validate(cls) -> Tuple[bool, List[str]]:

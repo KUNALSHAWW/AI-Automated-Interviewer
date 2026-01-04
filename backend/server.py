@@ -23,12 +23,14 @@ from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 import uvicorn
 
 from modules.config import Config
 from modules.vision_processor import VisionProcessor
 from modules.interview_brain import InterviewBrain
 from modules.tts_engine import TTSEngine
+from modules.report_generator import PDFReportGenerator
 
 # Try to import deepgram SDK
 try:
@@ -79,6 +81,9 @@ class InterviewHistoryStorage:
 
 # Global history storage
 interview_storage = InterviewHistoryStorage()
+
+# Global PDF report generator
+pdf_generator = PDFReportGenerator()
 
 
 # ============================================
@@ -531,7 +536,7 @@ class InterviewSession:
         await self._generate_and_send_report(interview_record)
     
     async def _generate_and_send_report(self, interview_record: Dict):
-        """Generate and send the report."""
+        """Generate and send the report including PDF."""
         try:
             await self.send_event("status", {"state": "thinking"})
             await self.send_event("ai_message", {"text": "Generating your report..."})
@@ -541,14 +546,42 @@ class InterviewSession:
             
             print(f"[Session] Summary generated: {summary.get('overall_score', 'N/A')}/100")
             
+            # Save JSON record
             filepath = interview_storage.save_interview(self.session_id, interview_record)
             print(f"[Session] Interview saved to: {filepath}")
             
-            await self.send_event("interview_complete", {
+            # Generate PDF report asynchronously
+            pdf_path = None
+            try:
+                loop = asyncio.get_event_loop()
+                pdf_path = await loop.run_in_executor(
+                    None,
+                    lambda: pdf_generator.generate(
+                        summary=summary,
+                        session_id=self.session_id,
+                        history=self.history
+                    )
+                )
+                print(f"[Session] PDF report generated: {pdf_path}")
+            except Exception as pdf_error:
+                print(f"[Session] PDF generation failed (non-critical): {pdf_error}")
+            
+            # Send completion event with PDF URL if available
+            response_data = {
                 "summary": summary,
                 "history": self.history,
                 "session_id": self.session_id
-            })
+            }
+            
+            if pdf_path:
+                response_data["report_url"] = f"/api/reports/{self.session_id}"
+                await self.send_event("report_ready", {
+                    "url": f"/api/reports/{self.session_id}",
+                    "session_id": self.session_id
+                })
+            
+            await self.send_event("interview_complete", response_data)
+            
         except Exception as e:
             print(f"[Session] Error generating summary: {e}")
             import traceback
@@ -687,6 +720,53 @@ async def get_interview(session_id: str):
     if interview:
         return interview
     return {"error": "Interview not found"}
+
+
+@app.get("/api/reports/{session_id}")
+async def get_report_pdf(session_id: str):
+    """
+    Download PDF report for a specific interview session.
+    
+    Returns the PDF file if found, or generates one if summary exists.
+    """
+    # Check if PDF already exists
+    pdf_path = pdf_generator.get_report_path(session_id)
+    
+    if pdf_path:
+        return FileResponse(
+            path=pdf_path,
+            filename=f"NavAI_Report_{session_id}.pdf",
+            media_type="application/pdf"
+        )
+    
+    # Try to generate from saved interview data
+    interview = interview_storage.get_interview(session_id)
+    if interview and interview.get("summary"):
+        try:
+            pdf_path = pdf_generator.generate(
+                summary=interview["summary"],
+                session_id=session_id,
+                history=interview.get("history", [])
+            )
+            return FileResponse(
+                path=pdf_path,
+                filename=f"NavAI_Report_{session_id}.pdf",
+                media_type="application/pdf"
+            )
+        except Exception as e:
+            return {"error": f"Failed to generate PDF: {str(e)}"}
+    
+    return {"error": "Report not found. Interview may not have a summary yet."}
+
+
+@app.get("/api/reports")
+async def list_reports():
+    """List all generated PDF reports."""
+    reports = pdf_generator.list_reports()
+    return {
+        "reports": reports,
+        "total": len(reports)
+    }
 
 
 # ============================================

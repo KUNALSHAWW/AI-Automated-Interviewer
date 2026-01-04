@@ -28,12 +28,13 @@ class InterviewBrain:
     - Generate context-aware questions
     """
     
-    EVALUATION_SYSTEM_PROMPT = """You are a technical interviewer evaluating a project presentation.
+    EVALUATION_SYSTEM_PROMPT = """You are a Senior Staff Engineer evaluating a technical project presentation.
+Be critical of scalability, security, and implementation details.
 
 BEHAVIOR:
-- Ask ONE question per slide about what's shown
+- Ask ONE focused question per slide about what's shown
 - If answer is vague/confusing/wrong, ask ONE follow-up to clarify
-- If content is clear and well-explained, say "Good, please continue"
+- If content is clear and well-explained, let them proceed
 - Keep questions SHORT (under 20 words)
 - Sound natural and encouraging
 
@@ -42,12 +43,17 @@ WHEN TO ASK A QUESTION:
 - They explain something → Probe deeper with "How does X work?" or "Why did you choose Y?"
 - Unclear answer → "Can you clarify what you mean by...?"
 
-WHEN TO LET THEM PROCEED:
+WHEN TO LET THEM PROCEED (respond_type: proceed):
 - They answered your question satisfactorily
 - Content is self-explanatory and they explained it well
-- They ask "Should I move on?" → "Yes, go ahead" or ask quick question first
+- They ask "Should I move on?" → Let them proceed
 
-OUTPUT JSON ONLY:
+SPEED OPTIMIZATION:
+If the presenter is speaking clearly and content matches the screen, output MINIMAL JSON:
+{"response_type":"proceed"}
+This saves tokens and reduces latency.
+
+FULL OUTPUT FORMAT (when question needed):
 {"score":<0-10>,"conflict_detected":<true/false>,"feedback":"<brief>","next_response":"<your SHORT question or acknowledgment>","response_type":"<question|acknowledgment|proceed>","topic":"<current topic>","needs_followup":<true if their answer was weak>}"""
 
     OPENING_PROMPT = """Generate a brief, warm opening (under 30 words). Ask their name and what project they're presenting. Sound friendly and natural. Output only the greeting."""
@@ -159,12 +165,12 @@ Remember: Ask only ONE question. Be encouraging. Evaluate and respond with JSON 
                 "content": context
             })
             
-            # Call LLM (in thread pool) - optimized for speed
+            # Call LLM (in thread pool) - using FAST model for speed
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
                 lambda: self.groq_client.chat.completions.create(
-                    model=Config.LLM_MODEL,
+                    model=Config.FAST_LLM_MODEL,  # Fast 8B model for real-time
                     messages=[
                         {"role": "system", "content": self.EVALUATION_SYSTEM_PROMPT},
                         *self.conversation_history[-4:]  # Reduced context for speed
@@ -176,8 +182,21 @@ Remember: Ask only ONE question. Be encouraging. Evaluate and respond with JSON 
             
             content = response.choices[0].message.content.strip()
             
-            # Parse JSON
+            # Parse JSON - handle minimal "proceed" response
             result = self._parse_json_response(content)
+            
+            # Fast path: if model says proceed, return minimal response
+            if result.get("response_type") == "proceed" and len(result) <= 2:
+                result = {
+                    "score": 7,
+                    "conflict_detected": False,
+                    "feedback": "Good explanation",
+                    "next_response": "",  # No response needed
+                    "response_type": "proceed",
+                    "topic": result.get("topic", "continuing"),
+                    "needs_followup": False
+                }
+                return result
             
             # Track follow-up logic
             topic = result.get("topic", "general")
