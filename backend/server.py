@@ -188,8 +188,15 @@ class InterviewSession:
         
         # Question pacing - don't bombard presenter
         self.last_question_time = 0
-        self.min_question_interval = 8.0  # Minimum seconds between AI questions
+        self.min_question_interval = 12.0  # Increased: minimum seconds between AI questions
         self.pending_response = False  # Are we waiting for presenter to respond?
+        
+        # Content accumulation - wait for presenter to finish explaining
+        self.content_buffer = []  # Accumulate transcripts before asking
+        self.last_speech_time = time.time()
+        self.silence_threshold = 3.0  # Seconds of silence before AI can interject
+        self.last_screen_change_time = 0
+        self.screen_change_detected = False  # Flag for new slide detection
         
         # Screen share reconnection
         self.screen_share_active = False
@@ -296,31 +303,68 @@ class InterviewSession:
             has_change, analysis = await self.vision.process_frame(frame_base64)
             
             if has_change and analysis:
+                # Detect slide change - this is a natural break point
+                self.screen_change_detected = True
+                self.last_screen_change_time = time.time()
                 self.screen_context = analysis
                 self.screen_contexts.append(analysis)  # Track for report
                 await self.send_event("screen_update", {
                     "context": analysis[:200] + "..." if len(analysis) > 200 else analysis
                 })
-                print(f"[Vision] Screen updated: {analysis[:100]}...")
+                print(f"[Vision] Screen changed - natural break point detected")
         except Exception as e:
             print(f"[Vision] Error: {e}")
     
     async def generate_response(self, transcript: str):
-        """Generate AI response based on transcript and screen context."""
+        """Generate AI response based on transcript and screen context.
+        
+        Smart timing strategy:
+        1. Always respond if presenter asks a question
+        2. Wait for slide changes (natural break points)
+        3. Wait for silence (3+ seconds pause)
+        4. Respect minimum interval between questions
+        """
         async with self._response_lock:
-            # Check pacing - don't bombard with questions
-            time_since_last = time.time() - self.last_question_time
-            if time_since_last < self.min_question_interval and self.last_question_time > 0:
-                # Too soon, let presenter continue
-                print(f"[Pacing] Skipping question - only {time_since_last:.1f}s since last")
+            current_time = time.time()
+            time_since_last_question = current_time - self.last_question_time
+            time_since_screen_change = current_time - self.last_screen_change_time
+            
+            # Accumulate content in buffer
+            self.content_buffer.append(transcript)
+            self.last_speech_time = current_time
+            
+            # Determine if this is a good time to ask a question
+            presenter_asking = any(q in transcript.lower() for q in [
+                "any question", "should i", "can i", "move on", "next slide", 
+                "what do you think", "is that clear", "does that make sense"
+            ])
+            
+            # Good time to ask: presenter asked, OR slide changed and enough time passed
+            is_natural_break = (
+                presenter_asking or 
+                (self.screen_change_detected and time_since_screen_change > 2.0) or
+                time_since_last_question >= self.min_question_interval
+            )
+            
+            if not is_natural_break and self.last_question_time > 0:
+                # Not a good time - let presenter continue
+                print(f"[Pacing] Accumulating content - waiting for natural break")
+                await self.send_event("status", {"state": "listening"})
                 return
+            
+            # Reset screen change flag
+            self.screen_change_detected = False
+            
+            # Combine accumulated content for better context
+            combined_transcript = " ".join(self.content_buffer[-3:])  # Last 3 segments
+            self.content_buffer = []  # Clear buffer
             
             await self.send_event("status", {"state": "thinking"})
             
             try:
-                # Get evaluation from the brain
+                # Get evaluation from the brain with combined transcript
                 evaluation = await self.brain.evaluate(
-                    transcript=transcript,
+                    transcript=combined_transcript,
                     screen_context=self.screen_context,
                     history=self.history
                 )

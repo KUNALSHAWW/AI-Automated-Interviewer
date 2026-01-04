@@ -2,24 +2,78 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================
+   NavAI Premium Zoom-Inspired Theme
+   ============================================ */
+
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Premium Zoom-like gradient background */
+.premium-gradient {
+  background: linear-gradient(145deg, #0b1426 0%, #0f1b2e 25%, #0d2847 50%, #0a2540 75%, #081e36 100%);
+  background-attachment: fixed;
   min-height: 100vh;
 }
 
-/* Custom scrollbar */
+/* Enhanced gradient with animated subtle glow */
+.premium-gradient::before {
+  content: '';
+  position: fixed;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle at 30% 30%, rgba(30, 64, 175, 0.08) 0%, transparent 50%),
+              radial-gradient(circle at 70% 70%, rgba(79, 70, 229, 0.06) 0%, transparent 50%);
+  z-index: -1;
+  animation: gradient-pulse 15s ease-in-out infinite;
+}
+
+@keyframes gradient-pulse {
+  0%, 100% { opacity: 1; transform: rotate(0deg); }
+  50% { opacity: 0.8; transform: rotate(5deg); }
+}
+
+/* Glass card effect */
+.glass-card {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3),
+              inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.glass-card:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4),
+              inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* Custom scrollbar - Zoom blue theme */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #1a1a2e;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #667eea;
-  border-radius: 4px;
+  background: linear-gradient(180deg, #2563eb 0%, #4f46e5 100%);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #3b82f6 0%, #6366f1 100%);
 }
 
 /* Pulse animation for recording indicator */
@@ -53,3 +107,118 @@ body {
 .audio-bar:nth-child(3) { animation-delay: 0.2s; }
 .audio-bar:nth-child(4) { animation-delay: 0.3s; }
 .audio-bar:nth-child(5) { animation-delay: 0.4s; }
+
+/* Speaking animation for AI avatar */
+@keyframes speak-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 15px rgba(59, 130, 246, 0);
+  }
+}
+
+.speaking-avatar {
+  animation: speak-pulse 1.5s ease-in-out infinite;
+}
+
+/* Button hover effects */
+button {
+  transition: all 0.2s ease;
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+/* Input focus styles */
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+}
+
+/* Smooth page transitions */
+main {
+  animation: fade-in 0.3s ease;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Interview status badge animations */
+@keyframes status-glow {
+  0%, 100% {
+    box-shadow: 0 0 5px currentColor;
+  }
+  50% {
+    box-shadow: 0 0 20px currentColor;
+  }
+}
+
+.status-listening {
+  animation: status-glow 1.5s ease-in-out infinite;
+  color: #ef4444;
+}
+
+.status-speaking {
+  animation: status-glow 1.5s ease-in-out infinite;
+  color: #3b82f6;
+}
+
+/* Score colors */
+.score-high { color: #22c55e; }
+.score-medium { color: #eab308; }
+.score-low { color: #ef4444; }
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, #60a5fa 0%, #818cf8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Loading spinner */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+/* Bounce animation for mic dots */
+@keyframes mic-bounce {
+  0%, 100% { transform: scaleY(0.5); }
+  50% { transform: scaleY(1); }
+}
+
+/* Connection status indicator */
+.connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.connection-dot.connected {
+  background-color: #22c55e;
+  box-shadow: 0 0 8px #22c55e;
+}
+
+.connection-dot.disconnected {
+  background-color: #6b7280;
+}
+
+.connection-dot.error {
+  background-color: #ef4444;
+  box-shadow: 0 0 8px #ef4444;
+}
