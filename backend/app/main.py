@@ -30,7 +30,7 @@ from .providers.llm import LLMClient
 from .providers.stt import STTClient
 from .rubrics import PRESETS, Rubric, resolve
 from .session import InterviewSession, _write_pdf, make_report
-from .settings import Settings
+from .settings import Settings, parse_chain
 from .store import Store
 
 log = logging.getLogger("navai")
@@ -155,6 +155,28 @@ def create_app(settings: Settings | None = None, *, llm: LLMClient | None = None
         deep_lock["last"] = now
         seen, out = set(), []
         llm_: LLMClient = app.state.llm
+        # Benchmark arbitrary candidates: ?models=groq:qwen/qwen3.8-27b,ollama:gemma4:31b&stt_models=groq:whisper-large-v3
+        # Needs a configured ACCESS_CODE so an open deployment cannot be used to spend quota on arbitrary models.
+        wanted, wanted_stt = request.query_params.get("models"), request.query_params.get("stt_models")
+        if wanted or wanted_stt:
+            if not cfg.access_code:
+                raise HTTPException(403, "Set ACCESS_CODE to benchmark custom models")
+            try:
+                chat = parse_chain(wanted or "")[:8]
+                stts = parse_chain(wanted_stt or "")[:4]
+            except ValueError as e:
+                raise HTTPException(400, str(e)) from None
+            for p, m in chat:
+                if not cfg.provider_ready(p):
+                    out.append({"kind": "chat", "provider": p, "model": m, "ok": False, "message": "no key for provider"})
+                else:
+                    out.append({"kind": "chat", "provider": p, "model": m, **(await llm_.probe(p, m))})
+            for p, m in stts:
+                if p not in ("groq", "openrouter") or not cfg.provider_ready(p):
+                    out.append({"kind": "stt", "provider": p, "model": m, "ok": False, "message": "unsupported or no key"})
+                else:
+                    out.append({"kind": "stt", "provider": p, "model": m, **(await app.state.stt.ping(p, m))})
+            return {"checked": out}
         for chain in (cfg.live_chain, cfg.vision_chain, cfg.council_chain):
             for p, m in cfg.chain_available(chain):
                 if (p, m) in seen:

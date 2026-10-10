@@ -222,3 +222,16 @@ def test_deep_health_requires_the_access_code_when_one_is_set(tmp_path, net, htt
         assert c.get("/api/health/deep", headers={"X-Access-Code": "wrong"}).status_code == 403
         r = c.get("/api/health/deep", headers={"X-Access-Code": "letmein"})
         assert r.status_code == 200 and r.json()["checked"]
+
+
+def test_deep_health_can_benchmark_candidate_models(tmp_path, net, http):
+    with _client(tmp_path, http, access_code="letmein") as c:
+        r = c.get("/api/health/deep", params={"models": "groq:qwen/qwen3.8-27b,ollama:gemma4:31b",
+                                              "stt_models": "groq:whisper-large-v3"},
+                  headers={"X-Access-Code": "letmein"})
+        assert r.status_code == 200
+        rows = r.json()["checked"]
+        assert [x["model"] for x in rows] == ["qwen/qwen3.8-27b", "gemma4:31b", "whisper-large-v3"]
+        assert all(x["ok"] for x in rows) and rows[0]["valid_json"] is True
+    with _client(tmp_path / "b", http) as c2:   # no ACCESS_CODE configured: custom benchmarks are refused
+        assert c2.get("/api/health/deep", params={"models": "groq:x"}).status_code == 403
