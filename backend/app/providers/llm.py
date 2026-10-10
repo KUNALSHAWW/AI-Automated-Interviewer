@@ -11,11 +11,14 @@ import re
 import time
 from dataclasses import dataclass
 
+import logging
+
 import httpx
 
 from ..settings import Settings
 from .common import AllProvidersFailed, Breaker, ProviderError, Usage
 
+log = logging.getLogger("navai.llm")
 _THINK_RE = re.compile(r"<think>.*?</think>", re.S | re.I)
 
 
@@ -69,6 +72,8 @@ class LLMClient:
             except ProviderError as err:
                 self.breaker.fail(key, err)
                 errors.append(err)
+                log.warning("%s: %s:%s failed (%s: %s); trying next in chain", purpose, provider, model, err.kind,
+                            err.message[:120])
                 continue
             self.breaker.ok(key)
             self.usage.add_chat(provider, model, res.usage)

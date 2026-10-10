@@ -78,24 +78,51 @@ def find_metrics(text: str) -> set[str]:
     return out
 
 
-def check_claims(spoken: str, repo_evidence: str, repo_techs: set[str], screen_text: str = "") -> dict:
+def check_claims(spoken: str, repo_evidence: str, repo_techs: set[str], screen_text: str = "",
+                 documented: set[str] | None = None) -> dict:
     """Compare what was said and shown with what the repository contains.
 
-    The repository is the ground truth for "what was built". A technology that is only said, or only
-    drawn on a slide, but has no trace in the repository evidence is reported as `not_found` (a prompt to ask,
-    not an accusation). Numeric claims are supported by the README or by the screen the student chose to show.
+    `repo_techs` is what is BUILT (manifests, file paths, import statements). `documented` is what only the
+    README claims. A technology that is only said, or only drawn on a slide, is reported as:
+      * `documented_only` when the README names it but nothing in the code base backs it up, or
+      * `not_found` when the repository evidence has no trace of it at all.
+    Both are prompts to ask, not accusations. Numeric claims are supported by the README or by the screen the
+    student chose to show.
 
-    Returns {"supported", "not_found", "unverified_metrics", "unspoken"} (sorted lists).
+    Returns {"supported", "documented_only", "not_found", "unverified_metrics", "unspoken"} (sorted lists).
     """
+    documented = documented or set()
     said = find_techs(spoken)
     shown = find_techs(screen_text) if screen_text else set()
+    mentioned = {t for t in (said | shown) if t not in _WEAK}
     supported = sorted(t for t in said if t in repo_techs)
-    not_found = sorted(t for t in (said | shown) if t not in repo_techs and t not in _WEAK)
+    documented_only = sorted(t for t in mentioned if t not in repo_techs and t in documented)
+    not_found = sorted(t for t in mentioned if t not in repo_techs and t not in documented)
     evidence_metrics = find_metrics(repo_evidence) | (find_metrics(screen_text) if screen_text else set())
     bad_metrics = sorted(m for m in find_metrics(spoken) if m not in evidence_metrics)
     return {
         "supported": supported,
+        "documented_only": documented_only,
         "not_found": not_found,
         "unverified_metrics": bad_metrics,
         "unspoken": sorted(t for t in repo_techs if t not in said and t not in _WEAK),
     }
+
+
+# Speech recognition splits or re-cases product names ("FAST API", "GIT Hub", "Postgres SQL"). Restoring the
+# canonical spelling makes transcripts readable and keeps quote verification and claim checks consistent.
+_RESPELL = {
+    "FastAPI": r"fast[\s-]api", "GitHub": r"git[\s-]hub", "PostgreSQL": r"post[\s-]?gres[\s-]?(?:sql|ql)",
+    "MongoDB": r"mongo[\s-]db", "GraphQL": r"graph[\s-]ql", "OpenAI": r"open[\s-]ai", "JavaScript": r"java[\s-]script",
+    "TypeScript": r"type[\s-]script", "WebSocket": r"web[\s-]socket", "WebSockets": r"web[\s-]sockets",
+    "Node.js": r"node[\s-]js", "Next.js": r"next[\s-]js", "PyTorch": r"pie[\s-]torch", "TensorFlow": r"tensor[\s-]flow",
+    "scikit-learn": r"scikit[\s-]learn|sci[\s-]kit[\s-]learn", "LangChain": r"lang[\s-]chain", "NumPy": r"num[\s-]py",
+    "Docker": r"dock[\s-]er", "Kubernetes": r"cuber?netes|kuber[\s-]netes", "Redis": r"re[\s-]dis(?=\s|\W|$)",
+}
+_RESPELL_RX = [(canon, re.compile(r"(?<![A-Za-z0-9])(?:%s)(?![A-Za-z0-9])" % rx, re.I)) for canon, rx in _RESPELL.items()]
+
+
+def normalize_transcript(text: str) -> str:
+    for canon, rx in _RESPELL_RX:
+        text = rx.sub(canon, text)
+    return text

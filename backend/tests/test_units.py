@@ -151,3 +151,17 @@ def test_custom_rubric_is_validated_and_normalised():
 
 def test_unknown_rubric_id_falls_back_to_project_viva():
     assert resolve("nope", None).id == "project_viva"
+
+
+def test_documented_only_is_separate_from_not_found():
+    out = check_claims("We use Celery and Kafka", "README", {"FastAPI"}, documented={"Celery"})
+    assert out["documented_only"] == ["Celery"] and out["not_found"] == ["Kafka"]
+    assert out["supported"] == []
+
+
+def test_transcript_normalisation_restores_product_names():
+    from app.techlex import normalize_transcript
+    raw = "The FAST API backend, hosted on GIT Hub, uses Post gres SQL and web sockets with Mongo DB."
+    out = normalize_transcript(raw)
+    assert "FastAPI" in out and "GitHub" in out and "PostgreSQL" in out and "MongoDB" in out
+    assert normalize_transcript("fast and slow api calls") == "fast and slow api calls"   # no false merges

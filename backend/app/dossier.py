@@ -46,7 +46,8 @@ class Dossier:
     branch: str = ""
     description: str = ""
     languages: dict = field(default_factory=dict)
-    techs: list = field(default_factory=list)
+    techs: list = field(default_factory=list)            # built: manifests, paths, imports
+    documented_techs: list = field(default_factory=list)  # only the README says so
     has_tests: bool = False
     has_ci: bool = False
     has_docker: bool = False
@@ -74,7 +75,9 @@ class Dossier:
         lines = [
             f"Repository: {self.repo} - {self.description or 'no description'}",
             f"Languages by file count: {langs or 'unknown'}",
-            f"Technologies detected in manifests/paths/README: {', '.join(self.techs) or 'none detected'}",
+            f"Technologies BUILT (found in manifests, file paths or import statements): {', '.join(self.techs) or 'none detected'}",
+            f"Technologies only DOCUMENTED in the README (no dependency, path or import backs them up): "
+            f"{', '.join(self.documented_techs) or 'none'}",
             f"Tests present: {self.has_tests}; CI workflow: {self.has_ci}; Docker: {self.has_docker}",
             f"Files: {self.file_count}. Sample paths: {', '.join(self.tree_sample[:25])}",
             "README excerpt:\n" + self.readme[:1500],
@@ -104,6 +107,15 @@ def strip_comments(text: str, ext: str) -> str:
         else:
             out.append(line)
     return "\n".join(out)
+
+
+_IMPORT_RE = re.compile(r"^\s*(?:import\b|from\s+\S+\s+import\b|using\b|use\b|require\b|#include\b|package\b)"
+                        r"|\brequire\(|\bimport\(|\bimport\s+.*\bfrom\s+['\"]", re.M)
+
+
+def import_lines(source: str) -> str:
+    """Only the import/require lines of a source file (the part that proves a library is really used)."""
+    return "\n".join(line for line in source.splitlines() if _IMPORT_RE.search(line))
 
 
 def _useful(path: str) -> bool:
@@ -242,7 +254,13 @@ async def build_dossier(url: str, http: httpx.AsyncClient, *, token: str = "", s
 
     d.evidence_text = "\n".join([d.readme, *d.manifests.values(), "\n".join(paths[:1500]),
                                  *(k["excerpt"] for k in d.key_files)])[:60000]
-    d.techs = sorted(find_techs(d.evidence_text))
+    # What is BUILT: dependency manifests, file paths and import statements. A tool name merely appearing in
+    # source text (a lexicon, a comment, a string, a test fixture) is not evidence it is used.
+    imports = "\n".join(import_lines(k["excerpt"]) for k in d.key_files)
+    build_text = "\n".join([*d.manifests.values(), "\n".join(paths[:1500]), imports])
+    d.techs = sorted(find_techs(build_text))
+    # What is DOCUMENTED: the README names it but no manifest, path or import backs it up.
+    d.documented_techs = sorted(find_techs(d.readme) - set(d.techs))
     d.probe_topics = make_probe_topics(d, seed or d.repo)
     d.brief = deterministic_brief(d)
     return d

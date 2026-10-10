@@ -179,7 +179,7 @@ async def test_dossier_detects_stack_tests_ci_and_skips_vendor_dirs(http):
     assert {"FastAPI", "Docker", "SQLAlchemy"} <= set(d.techs)
     assert d.has_tests and d.has_ci and d.has_docker
     assert not any("node_modules" in p for p in d.tree_sample)
-    assert d.languages.get("Python") == 3
+    assert d.languages.get("Python") == 4
     assert "40%" in d.readme and "evidence_text" not in d.public()
     assert d.probe_topics and d.brief.startswith("o/shop")
 
@@ -203,3 +203,10 @@ async def test_empty_completion_from_exhausted_budget_is_retried_with_more_token
     llm = LLMClient(make_settings(tmp_path), httpx.AsyncClient(transport=httpx.MockTransport(handler)))
     res = await llm.chat([("ollama", "gpt-oss:120b")], [{"role": "user", "content": "x"}], purpose="t", max_tokens=64)
     assert res.text == "ok" and budgets == [64, 256]
+
+
+async def test_tool_names_in_source_text_are_not_evidence_of_use(http):
+    d = await build_dossier("https://github.com/o/shop", http, seed="s1")
+    assert "Kafka" not in d.techs and "Redis" not in d.techs      # only listed as strings in app/lexicon.py
+    assert "FastAPI" in d.techs                                    # backed by requirements.txt and an import
+    assert "Celery" in d.documented_techs and "Celery" not in d.techs   # README says so, nothing backs it up
