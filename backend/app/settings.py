@@ -17,13 +17,18 @@ BASE_URLS = {
 
 # Model ids verified against the providers' public listings on 2026-10-10:
 #   ollama.com/api/tags, openrouter.ai/api/v1/models, console.groq.com/docs/models
-DEFAULT_LIVE_CHAIN = "groq:openai/gpt-oss-20b,ollama:gemma4:31b,openrouter:google/gemma-4-31b-it:free"
+# Measured live on 2026-10-11 with a realistic JSON turn: groq qwen3.8-27b (reasoning off) 0.23 s / 30 tokens,
+# ollama gemma4:31b 0.89 s / 38 tokens, ollama mistral-large-3 1.94 s / 44 tokens. Reasoning models were slower
+# (gpt-oss:20b 3.2 s / 207 tokens, nemotron-3-nano 7.4 s / 606 tokens) and groq llama-3.1-8b-instant returns 404.
+DEFAULT_LIVE_CHAIN = ("groq:qwen/qwen3.8-27b,ollama:gemma4:31b,ollama:mistral-large-3:675b,"
+                      "openrouter:google/gemma-4-31b-it:free")
 DEFAULT_VISION_CHAIN = "ollama:gemma4:31b,openrouter:google/gemma-4-31b-it:free,ollama:kimi-k2.6"
-DEFAULT_COUNCIL_CHAIN = (
-    "ollama:gpt-oss:120b,ollama:gemma4:31b,groq:openai/gpt-oss-120b,"
-    "ollama:glm-5.3-flash,openrouter:google/gemma-4-31b-it:free"
+DEFAULT_COUNCIL_CHAIN = (  # four different model families, none of them a reasoning-by-default model
+    "ollama:gemma4:31b,groq:qwen/qwen3.8-27b,ollama:mistral-large-3:675b,ollama:glm-5.3-flash"
 )
-DEFAULT_STT_CHAIN = "groq:whisper-large-v3-turbo,openrouter:openai/whisper-large-v3-turbo"
+# Both Groq Whisper models are free and have separate rate-limit buckets. OpenRouter STT is paid-only
+# (HTTP 402 without credits), so it is opt-in: STT_CHAIN=...,openrouter:openai/whisper-large-v3-turbo
+DEFAULT_STT_CHAIN = "groq:whisper-large-v3-turbo,groq:whisper-large-v3"
 
 
 def parse_chain(raw: str) -> list[tuple[str, str]]:
@@ -84,6 +89,7 @@ class Settings:
     sessions_per_hour_per_ip: int = 12
     trust_proxy: bool = False      # honour X-Forwarded-For (set on Render)
     max_session_minutes: int = 30
+    deep_check_interval_s: float = 15.0  # minimum gap between live provider checks (they spend quota)
 
     # --- turn taking -------------------------------------------------------
     pause_s: float = 2.5           # silence after the last utterance before the AI may speak

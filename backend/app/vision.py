@@ -66,6 +66,20 @@ def thumbnail(jpeg: bytes, width: int = 480) -> bytes:
     return buf.getvalue()
 
 
+def sample_slide_jpeg() -> bytes:
+    """A generated slide with known content, used by health checks to prove a vision model really reads images."""
+    from PIL import ImageDraw, ImageFont
+    im = Image.new("RGB", (960, 540), "white")
+    d = ImageDraw.Draw(im)
+    font = ImageFont.load_default(size=44)
+    d.text((60, 60), "Architecture", fill="black", font=font)
+    d.text((60, 170), "FastAPI -> Redis -> PostgreSQL", fill="black", font=font)
+    d.text((60, 280), "p95 latency: 120 ms", fill="black", font=font)
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=85)
+    return buf.getvalue()
+
+
 VISION_PROMPT = """You see a screenshot of a student's screen during a live project defense.
 Return ONLY a JSON object:
 {"content_type": "slide|code|diagram|terminal|browser|ide|document|other",

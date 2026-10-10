@@ -74,14 +74,29 @@ async def test_retired_model_is_reported_as_model_error(tmp_path):
 
 # -------------------------------------------------------------------------- STT
 async def test_stt_groq_success_and_openrouter_fallback(tmp_path, net, http):
-    cfg = make_settings(tmp_path)
+    chain = [("groq", "whisper-large-v3-turbo"), ("groq", "whisper-large-v3"),
+             ("openrouter", "openai/whisper-large-v3-turbo")]
+    cfg = make_settings(tmp_path, stt_chain=chain)
     stt = STTClient(cfg, http)
     r = await stt.transcribe(wav_bytes(2.0), language="en", prompt="Terms: FastAPI")
-    assert r.provider == "groq" and "FastAPI" in r.text and round(r.seconds, 1) == 2.0
+    assert r.provider == "groq" and r.model == "whisper-large-v3-turbo"
+    assert "FastAPI" in r.text and round(r.seconds, 1) == 2.0
 
-    cfg2 = make_settings(tmp_path, groq_api_key="")
+    cfg2 = make_settings(tmp_path, groq_api_key="", stt_chain=chain)
     r2 = await STTClient(cfg2, http).transcribe(wav_bytes(2.0))
     assert r2.provider == "openrouter"
+
+
+async def test_default_stt_chain_has_a_second_free_groq_model(tmp_path):
+    cfg = make_settings(tmp_path)
+    assert [m for _, m in cfg.stt_chain] == ["whisper-large-v3-turbo", "whisper-large-v3"]
+    assert all(p == "groq" for p, _ in cfg.stt_chain)    # no paid-only provider in the default path
+
+
+async def test_default_live_chain_avoids_reasoning_by_default_models(tmp_path):
+    cfg = make_settings(tmp_path)
+    models = [m for _, m in cfg.live_chain]
+    assert models[0] == "qwen/qwen3.8-27b" and not any("gpt-oss" in m for m in models)
 
 
 def test_whisper_silence_hallucinations_are_dropped():
