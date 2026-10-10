@@ -22,7 +22,9 @@ BASE_URLS = {
 # (gpt-oss:20b 3.2 s / 207 tokens, nemotron-3-nano 7.4 s / 606 tokens) and groq llama-3.1-8b-instant returns 404.
 DEFAULT_LIVE_CHAIN = ("groq:qwen/qwen3.8-27b,ollama:gemma4:31b,ollama:mistral-large-3:675b,"
                       "openrouter:google/gemma-4-31b-it:free")
-DEFAULT_VISION_CHAIN = "ollama:gemma4:31b,openrouter:google/gemma-4-31b-it:free,ollama:kimi-k2.6"
+# Vision measured live on a generated slide (2026-10-11): groq qwen3.8-27b 0.7 s correct, ollama gemma4:31b 1.8 s
+# correct, ollama glm-5.3-flash 3.0 s (invented a "CI/CD" box), ollama kimi-k2.6 timed out after 57 s.
+DEFAULT_VISION_CHAIN = "groq:qwen/qwen3.8-27b,ollama:gemma4:31b,openrouter:google/gemma-4-31b-it:free"
 DEFAULT_COUNCIL_CHAIN = (  # four different model families, none of them a reasoning-by-default model
     "ollama:gemma4:31b,groq:qwen/qwen3.8-27b,ollama:mistral-large-3:675b,ollama:glm-5.3-flash"
 )
