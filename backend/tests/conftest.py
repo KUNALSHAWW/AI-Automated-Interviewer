@@ -24,8 +24,8 @@ def pytest_runtest_logreport(report):
         text = (report.longreprtext or "")[-1200:]
         for raw, enc in (("%", "%25"), (chr(13), ""), (chr(10), "%0A")):
             text = text.replace(raw, enc)
-        print(f"
-::error title={report.nodeid}::{text}", flush=True)  # leading newline: pytest dots share the line
+        # leading newline: pytest's progress dots share the line, and workflow commands must start a line
+        print(chr(10) + f"::error title={report.nodeid}::{text}", flush=True)
 
 
 def make_settings(tmp_path, **kw) -> Settings:
