@@ -187,7 +187,7 @@ def test_stop_is_processed_while_the_llm_is_slow(tmp_path, net):
 @pytest.mark.timeout(30)
 def test_reshare_timer_is_cancelled_on_restore(tmp_path, net, http):
     """Old server: the 30 s timer was never cancelled, so lose -> restore -> lose ended the interview early."""
-    with _client(tmp_path, http, reshare_timeout_s=1.2) as c:
+    with _client(tmp_path, http, reshare_timeout_s=3.0) as c:
         s = c.post("/api/sessions", json={"consent": True}).json()
         seen: list = []
         with c.websocket_connect(s["ws_path"]) as ws:
@@ -197,13 +197,13 @@ def test_reshare_timer_is_cancelled_on_restore(tmp_path, net, http):
             _drain_until(ws, {"ai_say"}, seen)
             ws.send_text(json.dumps({"type": "screen_state", "active": False}))
             _drain_until(ws, {"screen_lost"}, seen)
-            time.sleep(0.4)
+            time.sleep(1.0)
             ws.send_text(json.dumps({"type": "screen_state", "active": True}))
             _drain_until(ws, {"screen_restored"}, seen)
-            time.sleep(0.3)
+            time.sleep(0.5)
             ws.send_text(json.dumps({"type": "screen_state", "active": False}))
             _drain_until(ws, {"screen_lost"}, seen)
-            time.sleep(0.5)                           # past the FIRST timer's deadline (0.4+0.3+0.5 > 1.2 from t0)
+            time.sleep(1.8)                           # now past the FIRST timer's deadline (1.0+0.5+1.8 > 3.0 from t0)
             ws.send_text(json.dumps({"type": "ping"}))
             msgs = []
             while True:

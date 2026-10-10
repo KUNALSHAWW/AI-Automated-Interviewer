@@ -17,6 +17,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.settings import Settings  # noqa: E402
 
 
+def pytest_runtest_logreport(report):
+    """On GitHub Actions, surface failures as annotations (visible without downloading logs)."""
+    import os
+    if report.failed and os.getenv("GITHUB_ACTIONS"):
+        text = (report.longreprtext or "")[-1200:].replace("%", "%25").replace("", "").replace("
+", "%0A")
+        print(f"::error title={report.nodeid}::{text}")
+
+
 def make_settings(tmp_path, **kw) -> Settings:
     base = dict(groq_api_key="gk", ollama_api_key="ok", openrouter_api_key="rk", github_token="",
                 data_dir=tmp_path / "data", frontend_dist=tmp_path / "nodist", pause_s=0.3, min_ai_gap_s=0.0,
