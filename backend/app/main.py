@@ -69,6 +69,7 @@ def create_app(settings: Settings | None = None, *, llm: LLMClient | None = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")  # no-op if configured
         client = http or httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=8.0))
         app.state.http = client
         app.state.llm = llm or LLMClient(cfg, client)

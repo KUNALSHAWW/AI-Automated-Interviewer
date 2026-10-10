@@ -246,7 +246,8 @@ class InterviewSession:
                     continue
                 self._utterances += 1
                 if res.text:
-                    await self._add_segment(res.text, max(0.0, arrived - res.seconds), "speech")
+                    await self._add_segment(res.text, max(0.0, arrived - res.seconds), "speech",
+                                            stt_s=round(res.latency_s, 2))
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -255,13 +256,13 @@ class InterviewSession:
                 self._transcribing -= 1
                 self._utt_q.task_done()
 
-    async def _add_segment(self, text: str, t: float, source: str) -> None:
+    async def _add_segment(self, text: str, t: float, source: str, stt_s: float | None = None) -> None:
         seg = Segment(id=len(self.segments) + 1, text=normalize_transcript(text.strip()), t=round(t, 1))
         self.segments.append(seg)
         self._words_since_ai += word_count(seg.text)
         self._last_speech_at = self._clock()
         self._invited = self._invited or is_invitation(seg.text)
-        await self._emit("transcript", id=seg.id, text=seg.text, source=source, at=seg.t)
+        await self._emit("transcript", id=seg.id, text=seg.text, source=source, at=seg.t, stt_s=stt_s)
 
     # ------------------------------------------------------------ vision worker
     async def _vision_loop(self) -> None:
