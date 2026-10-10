@@ -145,7 +145,21 @@ export default function Interview({ session, onReport, onAbort }) {
         },
       })
       micRef.current = mic
-      const sock = new InterviewSocket(session.ws_path, session.token, onMessage, () => {})
+      const sock = new InterviewSocket(session.ws_path, session.token, onMessage, () => {
+        // The server keeps going after a dropped socket and stores the session, so nothing is lost.
+        setPhase((p) => {
+          if (p === 'live' || p === 'ending') {
+            setError('The connection closed. The session is saved on the server; if the interview had ended, '
+              + 'open its report from History in a minute.')
+            return 'closed'
+          }
+          return p
+        })
+        micRef.current?.stop()
+        screenRef.current?.stop()
+        micRef.current = null
+        screenRef.current = null
+      })
       sockRef.current = sock
       await sock.connect()
       startedAt.current = Date.now()
