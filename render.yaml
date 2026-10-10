@@ -7,7 +7,7 @@ services:
     runtime: docker
     plan: free
     region: singapore
-    branch: main
+    # no `branch:` on purpose: a service in the same repo follows the branch the Blueprint was created from
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
