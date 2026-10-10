@@ -81,13 +81,14 @@ class LLMClient:
         t0 = time.perf_counter()
         try:
             res = await self._call(provider, model, [{"role": "user", "content": "Reply with the single word: ok"}],
-                                   False, 16, 0.0, 20.0)
+                                   False, 128, 0.0, 30.0)
             return {"ok": True, "latency_s": round(res.latency_s, 2), "reply": res.text[:40]}
         except ProviderError as e:
             return {"ok": False, "latency_s": round(time.perf_counter() - t0, 2), **e.public()}
 
     # ----------------------------------------------------------------- private
-    async def _call(self, provider, model, messages, json_mode, max_tokens, temperature, timeout) -> ChatResult:
+    async def _call(self, provider, model, messages, json_mode, max_tokens, temperature, timeout,
+                    boosted: bool = False) -> ChatResult:
         key = (provider, model)
         use_json = json_mode and key not in self._no_json_mode
         payload: dict = {"model": model, "messages": messages, "temperature": temperature,
@@ -116,16 +117,22 @@ class LLMClient:
             body = r.text[:400]
             if r.status_code == 400 and use_json and ("response_format" in body or "json" in body.lower()):
                 self._no_json_mode.add(key)  # this model rejects JSON mode; fall back to prompt-only JSON
-                return await self._call(provider, model, messages, json_mode, max_tokens, temperature, timeout)
+                return await self._call(provider, model, messages, json_mode, max_tokens, temperature, timeout, boosted)
             raise _http_error(provider, model, r, body)
 
         try:
             data = r.json()
-            text = data["choices"][0]["message"].get("content") or ""
+            choice = data["choices"][0]
+            text = choice["message"].get("content") or ""
         except (ValueError, KeyError, IndexError, TypeError):
             raise ProviderError(provider, model, "bad_response", f"unexpected body: {r.text[:200]}") from None
         text = _THINK_RE.sub("", text).strip()
         if not text:
+            # Reasoning models (gpt-oss, kimi, glm...) count their hidden thinking against max_tokens. When the
+            # budget ran out before any answer, retry once with a larger one instead of failing the turn.
+            if not boosted and max_tokens < 4096 and choice.get("finish_reason") in ("length", None, ""):
+                return await self._call(provider, model, messages, json_mode, min(4096, max_tokens * 4),
+                                        temperature, timeout, boosted=True)
             raise ProviderError(provider, model, "bad_response",
                                 "empty completion (model may have spent max_tokens on reasoning)")
         return ChatResult(text=text, provider=provider, model=model, latency_s=time.perf_counter() - t0,

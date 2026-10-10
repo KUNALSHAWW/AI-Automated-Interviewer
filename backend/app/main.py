@@ -142,8 +142,13 @@ def create_app(settings: Settings | None = None, *, llm: LLMClient | None = None
                 "active_sessions": len(app.state.active), "max_concurrent_sessions": cfg.max_concurrent_sessions}
 
     @app.get("/api/health/deep")
-    async def health_deep():
-        """Live check: one tiny call per configured provider. Throttled because it spends quota."""
+    async def health_deep(request: Request):
+        """Live check: one tiny call per configured provider. Spends quota, so it needs the access code when one
+        is configured (header X-Access-Code or ?access_code=) and is throttled."""
+        if cfg.access_code:
+            given = request.headers.get("x-access-code") or request.query_params.get("access_code", "")
+            if not hmac.compare_digest(given, cfg.access_code):
+                raise HTTPException(403, "Access code required")
         now = time.monotonic()
         if now - deep_lock["last"] < 15:
             raise HTTPException(429, "Deep health check ran moments ago; wait a few seconds.")

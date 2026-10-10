@@ -172,3 +172,19 @@ async def test_dossier_detects_stack_tests_ci_and_skips_vendor_dirs(http):
 async def test_private_repo_gives_a_clear_error(http):
     with pytest.raises(DossierError, match="private"):
         await build_dossier("https://github.com/o/private-repo", http)
+
+
+# ------------------------------------------------- reasoning models that spend max_tokens thinking
+async def test_empty_completion_from_exhausted_budget_is_retried_with_more_tokens(tmp_path):
+    budgets = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content)
+        budgets.append(body["max_tokens"])
+        if body["max_tokens"] < 200:   # all tokens went on hidden reasoning
+            return httpx.Response(200, json={"choices": [{"message": {"content": ""}, "finish_reason": "length"}]})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]})
+
+    llm = LLMClient(make_settings(tmp_path), httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    res = await llm.chat([("ollama", "gpt-oss:120b")], [{"role": "user", "content": "x"}], purpose="t", max_tokens=64)
+    assert res.text == "ok" and budgets == [64, 256]

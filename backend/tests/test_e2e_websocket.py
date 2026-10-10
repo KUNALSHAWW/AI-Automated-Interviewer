@@ -214,3 +214,11 @@ def test_reshare_timer_is_cancelled_on_restore(tmp_path, net, http):
             assert "ended" not in msgs                # still alive: the second window is its own full timeout
             ended = _drain_until(ws, {"ended"}, seen)  # and it does end once its own timeout elapses
             assert ended["auto"] is True
+
+
+def test_deep_health_requires_the_access_code_when_one_is_set(tmp_path, net, http):
+    with _client(tmp_path, http, access_code="letmein") as c:
+        assert c.get("/api/health/deep").status_code == 403
+        assert c.get("/api/health/deep", headers={"X-Access-Code": "wrong"}).status_code == 403
+        r = c.get("/api/health/deep", headers={"X-Access-Code": "letmein"})
+        assert r.status_code == 200 and r.json()["checked"]
