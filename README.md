@@ -1,450 +1,201 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/AI-Powered-blueviolet?style=for-the-badge&logo=openai&logoColor=white" alt="AI Powered"/>
-  <img src="https://img.shields.io/badge/Real--Time-WebSocket-green?style=for-the-badge&logo=websocket&logoColor=white" alt="Real-Time"/>
-  <img src="https://img.shields.io/badge/React-18.2-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React"/>
-  <img src="https://img.shields.io/badge/FastAPI-0.109-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI"/>
-</p>
+# NavAI Viva
 
-<h1 align="center">🎯 NavAI - AI Automated Interviewer</h1>
+**Repo-grounded project defense interviews.** Nova, an AI examiner, reads a student's GitHub repository, then listens to
+and watches their presentation and checks three things against each other: what they **say**, what they **show**, and
+what they actually **built**. Every score in the report is tied to a verbatim quote that the server verified.
 
-<p align="center">
-  <strong>An intelligent, real-time AI interviewer for evaluating project presentations and technical demos</strong>
-</p>
-
-<p align="center">
-  <a href="#-features">Features</a> •
-  <a href="#-demo">Demo</a> •
-  <a href="#️-architecture">Architecture</a> •
-  <a href="#-quick-start">Quick Start</a> •
-  <a href="#-api-reference">API</a> •
-  <a href="#-tech-stack">Tech Stack</a>
-</p>
+> Built by Kunal Shaw. v3 is a ground-up rebuild of the original NavAI interviewer (see [What changed from v2](#what-changed-from-v2)).
 
 ---
 
-## 🌟 Overview
+## Why this exists
 
-**NavAI** is a cutting-edge AI-powered interviewer system designed to conduct real-time technical interviews and project presentations. It combines **speech recognition**, **computer vision**, and **large language models** to create an immersive, interactive interview experience that feels natural and human-like.
+Written work is no longer a reliable signal of understanding. NYU Stern's AI/ML course found that polished take-home
+work did not match what students could explain aloud, and moved to AI-run oral exams: 36 exams cost about \$15 in
+direct usage ([arXiv 2603.18221](https://arxiv.org/abs/2603.18221), self-reported, two cohorts, one institution).
 
-Built for hackathons, educational assessments, and technical evaluations, NavAI can:
-- 🎤 **Listen** to presenters in real-time using Deepgram's Nova-2
-- 👁️ **See** screen shares and analyze presentation content
-- 🧠 **Think** and generate contextual follow-up questions
-- 🗣️ **Speak** responses naturally using Edge TTS
-- 📊 **Evaluate** presentations with comprehensive scoring
+Bootcamps, colleges and hackathon organizers have the same problem at larger scale and with less money: nobody can read
+every repository or sit through every demo. NavAI Viva is the free-tier-friendly version of that oral defense, built
+around a student's **own project**:
 
----
+| Pain | What NavAI Viva does |
+|---|---|
+| Can't tell whether the student built it | Asks about specifics found in *their* repo (stack, files, tests) |
+| Slides overclaim ("we use Redis + Kafka") | Flags tools that are said or drawn but have no trace in the repository, and asks about them |
+| LLM scores are vibes | A score exists only if the model quotes the presenter verbatim and code finds that quote in the transcript or on screen |
+| One model's opinion | A council of up to three different model families grades only observed dimensions; disagreement raises a human-review flag |
+| Accent / language bias | Utterance-level Whisper with your repo's stack names as a recogniser hint; English, Hindi or Hinglish |
+| Confident-sounding fake reports | Missing evidence is reported as "not observed", never a default 5 or 50 |
 
-## ✨ Features
+## How it works
 
-### 🎙️ Real-Time Voice Interaction
-- **Live Speech Recognition** - Deepgram Nova-2 for accurate, low-latency transcription
-- **Natural TTS Responses** - Microsoft Edge TTS with human-like voice synthesis
-- **Barge-in Support** - Interrupt the AI mid-sentence, just like a real conversation
-
-### 👁️ Intelligent Vision Processing
-- **Screen Share Analysis** - Real-time capture and analysis of presentation slides
-- **Smart Change Detection** - SSIM-based algorithm triggers analysis only when content changes
-- **Multi-Content Support** - Handles code, diagrams, slides, terminals, and more
-
-### 🧠 Adaptive Questioning Engine
-- **Context-Aware Questions** - Questions based on both verbal explanation AND visual content
-- **Conflict Detection** - Identifies inconsistencies between what's shown and what's said
-- **One Question Per Slide** - Structured questioning that doesn't overwhelm presenters
-- **Follow-up Logic** - Probes deeper when answers are unclear or incomplete
-
-### 📊 Comprehensive Evaluation
-- **10-Category Scoring System**:
-  - Technical Depth
-  - Clarity of Explanation
-  - Originality & Innovation
-  - Implementation Understanding
-  - Presentation Formatting
-  - Visual Aids Quality
-  - Diagrams & Charts
-  - Code Quality
-  - Problem Solving
-  - Communication Skills
-
-### 📄 Professional Reporting
-- **Detailed PDF Reports** - Downloadable interview summaries
-- **Strengths & Weaknesses** - Specific feedback with examples
-- **Visual Feedback** - Comments on slide design, diagrams, and formatting
-- **Actionable Recommendations** - PASS / NEEDS_IMPROVEMENT / FAIL with reasoning
-
-### 🔄 Session Management
-- **Interview History** - Track all past interviews
-- **Screen Reconnection** - 30-second grace period to reshare if disconnected
-- **Report Generation Choice** - Generate detailed report or skip after interview
-
----
-
-## 🎬 Demo
-
-### Interview Flow
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        START INTERVIEW                          │
-├─────────────────────────────────────────────────────────────────┤
-│  1. 🎤 AI Greets & Asks for Introduction                       │
-│  2. 📺 User Shares Screen                                       │
-│  3. 🗣️ User Presents Project                                   │
-│  4. 👁️ AI Analyzes Screen Content                              │
-│  5. 🧠 AI Asks Contextual Questions                            │
-│  6. 📝 AI Scores Each Response                                 │
-│  7. 🔄 Repeat for Each Slide                                   │
-│  8. 📊 Generate Comprehensive Report                           │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  R[GitHub repo] -->|API + raw files| D[Dossier: stack, tests, CI, key files, probe topics]
+  subgraph Browser
+    M[Mic] --> V[VAD: whole utterances] --> W[WAV]
+    S[Screen] --> F[JPEG frames]
+    T[speechSynthesis]
+  end
+  W -->|binary WS| Q[STT queue] --> STT[Groq Whisper / OpenRouter]
+  F -->|latest wins| C[Tile change detector] --> VM[Vision model]
+  STT --> SEG[Segments]
+  D --> E
+  VM --> E
+  SEG --> P[Pacing rules] --> E[Evaluator: one question + quoted observations]
+  E -->|verify quotes in code| EV[(Evidence)]
+  E -->|ai_say| T
+  EV --> G[Council grading] --> RPT[Report + PDF]
 ```
 
----
+* **Receive loop never blocks.** The WebSocket handler only enqueues; STT, vision and the interviewer run as workers
+  (`backend/app/session.py`). "End interview" is handled immediately.
+* **Turn taking is rule-based and tested** (`pacing.py`): pauses under 2.5 s are thinking time; the AI waits for enough
+  content, a slide change, an invitation ("any questions?") or a long monologue; one question at a time, validated in code.
+* **The browser does voice-activity detection**, so the server transcribes whole utterances instead of arbitrary 3-second
+  windows, and silence is never sent or billed.
+* **The browser speaks** (Web Speech API) and reports real playback start/end, so the server knows when Nova is talking.
+  Half-duplex by default (the mic is ignored while Nova talks); a "headphones mode" enables interruption.
+* **No fake fallbacks.** If every provider for a step fails, the user sees which provider failed and why.
 
-## 🏗️ Architecture
+## Providers (verified 2026-10-10)
 
-```
-┌────────────────────────────────────────────────────────────────────┐
-│                           FRONTEND                                  │
-│                     React 18 + Vite + Tailwind                     │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
-│  │   Audio      │  │   Screen     │  │    UI        │              │
-│  │   Capture    │  │   Share      │  │  Components  │              │
-│  │  (PCM 16k)   │  │  (JPEG)      │  │              │              │
-│  └──────┬───────┘  └──────┬───────┘  └──────────────┘              │
-│         │                 │                                         │
-│         └────────┬────────┘                                         │
-│                  │ WebSocket                                        │
-└──────────────────┼──────────────────────────────────────────────────┘
-                   │
-┌──────────────────┼──────────────────────────────────────────────────┐
-│                  │            BACKEND                               │
-│                  ▼         FastAPI + WebSocket                      │
-│  ┌───────────────────────────────────────────────────────────────┐ │
-│  │                    WebSocket Handler                           │ │
-│  │              Manages real-time bidirectional comms             │ │
-│  └───────────────────────────────────────────────────────────────┘ │
-│         │                │                │                │        │
-│         ▼                ▼                ▼                ▼        │
-│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐   │
-│  │  Deepgram  │  │   Vision   │  │  Interview │  │    TTS     │   │
-│  │   Client   │  │ Processor  │  │   Brain    │  │   Engine   │   │
-│  │            │  │            │  │            │  │            │   │
-│  │  Nova-2    │  │ Groq Llama │  │ Groq Llama │  │  Edge TTS  │   │
-│  │   STT      │  │  4 Scout   │  │ 3.3 70B    │  │            │   │
-│  └────────────┘  └────────────┘  └────────────┘  └────────────┘   │
-│                                                                     │
-│  ┌───────────────────────────────────────────────────────────────┐ │
-│  │                    Interview Storage                          │ │
-│  │                 JSON files in /interview_history              │ │
-│  └───────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
+| Need | Provider | Notes |
+|---|---|---|
+| Interviewer (live) | Groq `openai/gpt-oss-20b` → Ollama Cloud `gemma4:31b` → OpenRouter `google/gemma-4-31b-it:free` | all OpenAI-compatible `/chat/completions` |
+| Vision | Ollama Cloud `gemma4:31b` → OpenRouter free `google/gemma-4-31b-it:free` → `kimi-k2.6` | Groq's model list currently shows no vision model |
+| Grading council | Ollama Cloud `gpt-oss:120b`, `gemma4:31b`, `glm-5.3-flash` (+ Groq `openai/gpt-oss-120b`) | up to `COUNCIL_SIZE` distinct models in parallel |
+| Speech-to-text | Groq `whisper-large-v3-turbo` → OpenRouter `openai/whisper-large-v3-turbo` | **Ollama has no STT endpoint** (none in its OpenAI-compatible API docs; `gemma4` audio input is documented only for the small checkpoints, while the cloud tag list shows 31B) |
+
+The previous defaults (`llama-4-scout-17b-16e-instruct`, `llama-3.1-8b-instant`, `llama-3.3-70b-versatile`) are listed on
+[Groq's deprecation page](https://console.groq.com/docs/deprecations) with shutdown dates of 2026-07-17 and 2026-08-16.
+
+Model ids and limits change. After setting keys, run:
+
+```bash
+cd backend && python scripts/provider_check.py
 ```
 
-### Module Breakdown
+It makes one tiny call per configured model (including a vision call on a generated slide and a one-second STT call)
+and tells you which entries work and what to change in `.env`.
 
-| Module | Purpose | Technology |
-|--------|---------|------------|
-| `server.py` | WebSocket server, session management | FastAPI, uvicorn |
-| `interview_brain.py` | AI evaluation engine, question generation | Groq Llama 3.3 70B |
-| `vision_processor.py` | Screen analysis with change detection | Groq Llama 4 Scout |
-| `tts_engine.py` | Text-to-speech synthesis | Edge TTS / OpenAI |
-| `deepgram_client.py` | Speech-to-text transcription | Deepgram Nova-2 |
-| `config.py` | Centralized configuration | python-dotenv |
+## Quick start
 
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- **Python 3.10+**
-- **Node.js 18+**
-- **API Keys** (all have free tiers):
-  - [Groq](https://console.groq.com) - LLM & Vision (FREE, fast)
-  - [Deepgram](https://console.deepgram.com) - Speech-to-Text (FREE tier)
-
-### Installation
-
-#### 1️⃣ Clone the Repository
+Requirements: Python 3.10+ (test suite run on 3.10 and 3.13), Node 20+.
 
 ```bash
 git clone https://github.com/KUNALSHAWW/AI-Automated-Interviewer.git
-cd AI-Automated-Interviewer
-```
-
-#### 2️⃣ Backend Setup
-
-```bash
-cd backend
-
-# Create virtual environment
-python -m venv venv
-
-# Activate (Windows)
-venv\Scripts\activate
-
-# Activate (macOS/Linux)
-source venv/bin/activate
-
-# Install dependencies
+cd AI-Automated-Interviewer/backend
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+cp .env.example .env                                   # add OLLAMA_API_KEY and/or GROQ_API_KEY
+python scripts/provider_check.py                       # confirm your keys and models
+python server.py                                       # http://127.0.0.1:8000
 
-# Configure environment
-cp .env.template .env
-# Edit .env with your API keys
+# second terminal, for the Vite dev server with hot reload
+cd frontend && npm install && npm run dev              # http://localhost:3000
 ```
 
-#### 3️⃣ Frontend Setup
+Windows users can run `start-backend.bat` and `start-frontend.bat`.
+
+**Docker / Render** (one container serves API, WebSocket and the built app):
 
 ```bash
-cd frontend
-
-# Install dependencies
-npm install
+docker build -t navai-viva . && docker run --rm -p 8000:8000 --env-file backend/.env navai-viva
 ```
 
-#### 4️⃣ Configure API Keys
+`render.yaml` is a blueprint for a free Render web service. Free instances sleep after 15 minutes and have an
+ephemeral disk, so sessions live only while the instance does: download the PDF when you finish.
 
-Edit `backend/.env`:
+## Configuration
 
-```env
-# Required (both have FREE tiers)
-GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxx
-DEEPGRAM_API_KEY=xxxxxxxxxxxxxxxxxxxxx
+| Variable | Default | Purpose |
+|---|---|---|
+| `OLLAMA_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY` | | Provider keys (one chat key + one STT key minimum) |
+| `LIVE_CHAIN`, `VISION_CHAIN`, `COUNCIL_CHAIN`, `STT_CHAIN` | see `.env.example` | `provider:model` lists, first available wins |
+| `GITHUB_TOKEN` | | Optional; 60 → 5000 repo-analysis requests/hour |
+| `ACCESS_CODE` | | Require a code to start an interview (set on any public deployment) |
+| `RETENTION_DAYS` | 30 | Sessions older than this are deleted at startup |
+| `MAX_CONCURRENT_SESSIONS` | 2 | One session can have two requests in flight; Ollama Pro allows three |
+| `PAUSE_SECONDS`, `MIN_AI_GAP_SECONDS`, `MIN_WORDS_TO_ASK` | 2.5, 20, 35 | Turn-taking |
+| `CORS_ORIGINS` | localhost:3000 | Allow-list (the old server allowed `*`) |
 
-# Optional
-OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
-```
+## API
 
-### Running the Application
+`POST /api/sessions` `{repo_url?, rubric_id | rubric, language: en|hi|auto, consent: true, access_code?}` →
+`{id, token, ws_path, repo, rubric, warnings}`. Every later request needs `Authorization: Bearer <token>`.
 
-#### Option 1: Using Batch Scripts (Windows)
+| Route | Purpose |
+|---|---|
+| `GET /api/health`, `/api/health/deep` | Readiness, which chains are configured, circuit-breaker state, live pings |
+| `GET /api/rubrics` | Built-in rubrics (project viva, hackathon judging, mock interview); custom rubrics via `rubric` |
+| `GET /api/sessions/{id}` | Status + report |
+| `GET /api/sessions/{id}/report.pdf`, `/thumb/{n}.jpg` | Download PDF / slide thumbnails (`?token=` allowed) |
+| `POST /api/sessions/{id}/report` | Regenerate the report from stored evidence |
+| `DELETE /api/sessions/{id}` | Delete everything for a session |
+| `WS /ws/interview/{id}` | First message `{"type":"auth","token":...}` |
+
+WebSocket, client → server: `start`, `stop`, `text`, `playback {state}`, `interrupt`, `screen_state {active}`, `ping`, and binary
+frames (`0x01`+WAV utterance, `0x02`+JPEG). Server → client: `status`, `transcript`, `ai_say`, `evidence`, `flag`, `claims`,
+`screen`, `warning`, `screen_lost`, `screen_restored`, `ended`, `report_status`, `report`, `report_error`.
+
+## Report anatomy
+
+Per rubric dimension (0 to 4): final score, number of verified quotes, each grader's score, and the quotes themselves.
+Overall band (Emerging / Developing / Proficient / Strong) is only given when at least half of the rubric weight was
+observed; otherwise "Not enough evidence". The report also lists tools said/shown but not found in the repo, numeric claims
+with no support, consistency flags, slide thumbnails, token and audio usage, and a `needs_human_review` block with reasons.
+
+## Tests
 
 ```bash
-# Terminal 1 - Backend
-start-backend.bat
-
-# Terminal 2 - Frontend
-start-frontend.bat
+cd backend && pip install -r requirements-dev.txt && python -m pytest -q     # 46 tests
+cd frontend && npm test                                                      # 9 tests
 ```
 
-#### Option 2: Manual Start
+What is covered: provider fallback and circuit breaking, JSON-mode rejection, retired-model errors, Whisper hallucination
+filtering, pacing rules, the question validator, quote verification, the technology lexicon, the change detector (including
+the slide-to-slide case the old threshold missed), grading honesty, repository dossier building, and a full
+HTTP → WebSocket → evidence → report → PDF → delete run against a fake provider network, plus regression tests for the old
+blocked receive loop and the uncancelled reshare timer.
 
-```bash
-# Terminal 1 - Backend
-cd backend
-python server.py
+**Not covered by automation:** live calls to the real providers (run `provider_check.py` with your keys) and real
+microphone / screen capture on real browsers.
 
-# Terminal 2 - Frontend
-cd frontend
-npm run dev
-```
+## Privacy and limits
 
-#### 5️⃣ Access the Application
+* Consent is required before a session starts. Audio, screen frames and transcripts go to the providers you configure.
+* Sessions are readable only with their secret token, are deletable (`DELETE`), and expire after `RETENTION_DAYS`.
+* The report is **advisory feedback**, not a grading or hiring decision. It flags itself when evidence is thin or graders disagree.
+* Speech recognition can misread accents and technical terms. Repository checks read a sample (manifests, tree, README, key
+  files); "not found" means "worth asking". Only public GitHub repositories are supported.
+* PDF text uses a Latin font, so Devanagari quotes appear as `?` in the PDF; the web report and JSON keep them.
+* Models can still be wrong. Use the evidence panel, not the band alone.
 
-Open your browser and navigate to:
-```
-http://localhost:3000
-```
+## What changed from v2
 
----
+| v2 (Jan 2026) | v3 |
+|---|---|
+| Three Groq models that have since been shut down; failures returned a canned "score 5" | Provider chains with fallback and circuit breaker; failures are surfaced, never faked |
+| Change detector averaged the whole frame (slide changes scored 0.015 to 0.023 vs a 0.10 threshold) | 16×9 tile detector that ignores cursors and waits for the picture to settle |
+| Visual quality always 5, tech depth = overall, "proceed" stored as 7, report filled with hardcoded 50s | Rubric-anchored scores that require verified quotes; unobserved dimensions are "not observed" |
+| STT → LLM → TTS awaited inside the socket receive loop | Queues and workers; the socket only enqueues |
+| Fixed 3 s audio windows, README claimed live streaming and pause detection | Browser VAD sends whole utterances; the README now matches the code |
+| `allow_origins=["*"]`, no auth, `/api/reports/*` wildcard glob, guessable timestamp ids | Per-session tokens, CORS allow-list, access code, rate limit, random ids, deletion and retention |
+| Interviews saved only if a report was requested; duration wrong | Always saved; duration measured |
+| `numpy==1.26.3`, `pillow==10.2.0` (no Python 3.13 wheels) | Range pins; backend suite passes on 3.13 |
 
-## 📖 API Reference
+## Roadmap
 
-### WebSocket Endpoint
+Organizer dashboard (cohort comparison, rubric editor in the UI), private repositories via GitHub OAuth, richer code
+grounding (AST-level questions), calibration set of recorded demos with human scores, durable storage on a paid database.
 
-```
-ws://localhost:8000/ws/interview
-```
+## References
 
-### Client → Server Messages
+* NYU Stern, *Scalable and Personalized Oral Assessments Using Voice AI*, [arXiv 2603.18221](https://arxiv.org/abs/2603.18221): question stacking, silence-as-thinking-time and council grading lessons applied here.
+* Ollama Cloud API: [docs.ollama.com/cloud](https://docs.ollama.com/cloud), OpenAI compatibility: [docs.ollama.com/api/openai-compatibility](https://docs.ollama.com/api/openai-compatibility).
+* Groq speech-to-text: [console.groq.com/docs/speech-to-text](https://console.groq.com/docs/speech-to-text). OpenRouter STT: [openrouter.ai/docs/guides/overview/multimodal/stt](https://openrouter.ai/docs/guides/overview/multimodal/stt).
 
-| Type | Payload | Description |
-|------|---------|-------------|
-| `audio` | `{data: base64, encoding: "linear16", sampleRate: 16000}` | Audio chunk from microphone |
-| `video` | `{data: base64}` | Screen capture frame (JPEG) |
-| `stop` | `{}` | End interview session |
-| `generate_report` | `{}` | Request final report generation |
-| `screen_share_lost` | `{}` | Notify screen share disconnected |
-| `screen_share_restored` | `{}` | Notify screen share reconnected |
+## License
 
-### Server → Client Messages
-
-| Type | Payload | Description |
-|------|---------|-------------|
-| `status` | `{state: "listening" \| "thinking" \| "speaking"}` | Current AI state |
-| `transcript_interim` | `{text: string}` | Partial transcription |
-| `transcript_final` | `{text: string}` | Final transcription |
-| `evaluation` | `{score: number, next_question: string, conflict_detected: boolean}` | AI evaluation |
-| `audio_chunk` | `{audio: base64}` | TTS audio chunk (MP3) |
-| `interview_complete` | `{summary: object, history: array}` | Final report |
-| `interview_stopped` | `{session_id: string}` | Interview ended, prompt for report |
-
-### REST Endpoints
-
-```http
-GET /api/interviews
-```
-Returns list of all past interviews.
-
-```http
-GET /api/interview/{session_id}
-```
-Returns specific interview details.
-
----
-
-## 🛠️ Tech Stack
-
-### Backend
-
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| Python | 3.10+ | Runtime |
-| FastAPI | 0.109 | Web Framework |
-| Groq | Latest | LLM Inference |
-| Deepgram | Nova-2 | Speech Recognition |
-| Edge TTS | 6.1.9 | Text-to-Speech |
-
-### Frontend
-
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| React | 18.2 | UI Framework |
-| Vite | 5.0 | Build Tool |
-| Tailwind CSS | 3.4 | Styling |
-| WebSocket | Native | Real-time Comms |
-
-### AI Models
-
-| Model | Provider | Purpose |
-|-------|----------|---------|
-| `llama-3.3-70b-versatile` | Groq | Evaluation & Questions |
-| `llama-4-scout-17b-16e-instruct` | Groq | Vision/Screen Analysis |
-| `nova-2` | Deepgram | Speech-to-Text |
-| `en-US-GuyNeural` | Edge TTS | Text-to-Speech |
-
----
-
-## 📁 Project Structure
-
-```
-AI-Automated-Interviewer/
-├── 📁 backend/
-│   ├── 📄 server.py              # FastAPI WebSocket server
-│   ├── 📄 requirements.txt       # Python dependencies
-│   ├── 📄 .env.template          # Environment template
-│   ├── 📁 modules/
-│   │   ├── 📄 config.py          # Configuration management
-│   │   ├── 📄 interview_brain.py # AI evaluation engine
-│   │   ├── 📄 vision_processor.py# Screen analysis
-│   │   ├── 📄 tts_engine.py      # Text-to-speech
-│   │   └── 📄 deepgram_client.py # Speech recognition
-│   └── 📁 interview_history/     # Saved interviews (JSON)
-│
-├── 📁 frontend/
-│   ├── 📄 package.json           # Node dependencies
-│   ├── 📄 vite.config.js         # Vite configuration
-│   ├── 📄 tailwind.config.js     # Tailwind configuration
-│   ├── 📄 index.html             # Entry HTML
-│   └── 📁 src/
-│       ├── 📄 App.jsx            # Main React component
-│       ├── 📄 main.jsx           # React entry point
-│       └── 📄 index.css          # Global styles
-│
-├── 📄 start-backend.bat          # Windows backend launcher
-├── 📄 start-frontend.bat         # Windows frontend launcher
-└── 📄 README.md                  # This file
-```
-
----
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `GROQ_API_KEY` | ✅ Yes | - | Groq API key for LLM |
-| `DEEPGRAM_API_KEY` | ✅ Yes | - | Deepgram API key for STT |
-| `OPENAI_API_KEY` | ❌ No | - | OpenAI key (better TTS) |
-| `LLM_MODEL` | ❌ No | `llama-3.3-70b-versatile` | Evaluation model |
-| `VISION_MODEL` | ❌ No | `meta-llama/llama-4-scout-17b-16e-instruct` | Vision model |
-| `TTS_PROVIDER` | ❌ No | `edge` | TTS provider (`edge`/`openai`) |
-| `EDGE_TTS_VOICE` | ❌ No | `en-US-GuyNeural` | Edge TTS voice |
-| `VISION_CHANGE_THRESHOLD` | ❌ No | `0.10` | Frame change sensitivity |
-| `VISION_MIN_INTERVAL` | ❌ No | `3.0` | Min seconds between vision calls |
-
----
-
-## 🎯 Use Cases
-
-### 🎓 Educational Assessment
-- Evaluate student project presentations
-- Provide instant feedback on technical understanding
-- Track progress across multiple presentations
-
-### 💼 Technical Interviews
-- Screen coding candidates
-- Assess system design explanations
-- Evaluate communication skills
-
-### 🏆 Hackathon Judging
-- Automate initial project screening
-- Consistent evaluation criteria
-- Scale to multiple submissions
-
-### 📝 Practice & Training
-- Safe environment to practice presentations
-- Immediate feedback for improvement
-- Build confidence before real interviews
-
----
-
-## 🔒 Security Considerations
-
-- **API Keys**: Never commit `.env` files. Use `.env.template` as reference.
-- **WebSocket**: Currently configured for localhost. Add authentication for production.
-- **CORS**: Configured for localhost origins. Restrict in production.
-- **Data Storage**: Interview history stored locally. Consider encryption for sensitive data.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
----
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- [Groq](https://groq.com) - Lightning-fast LLM inference
-- [Deepgram](https://deepgram.com) - Best-in-class speech recognition
-- [Microsoft Edge TTS](https://github.com/rany2/edge-tts) - High-quality free TTS
-- [FastAPI](https://fastapi.tiangolo.com) - Modern Python web framework
-- [React](https://react.dev) - UI library
-- [Tailwind CSS](https://tailwindcss.com) - Utility-first CSS framework
-
----
-
-<p align="center">
-  Made with ❤️ by <a href="https://github.com/KUNALSHAWW">Kunal Shaw</a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/KUNALSHAWW/AI-Automated-Interviewer">
-    ⭐ Star this repo if you found it helpful!
-  </a>
-</p>
+MIT, see [LICENSE](LICENSE). © Kunal Shaw.

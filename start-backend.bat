@@ -1,46 +1,30 @@
 @echo off
 echo ========================================
-echo   NavAI Real-Time - Backend Setup
+echo   NavAI Viva - backend
 echo ========================================
-echo.
-
 cd /d "%~dp0backend"
 
-REM Check if venv exists
-if not exist "venv" (
+if not exist ".venv" (
     echo Creating virtual environment...
-    python -m venv venv
+    python -m venv .venv
 )
-
-echo Activating virtual environment...
-call venv\Scripts\activate.bat
+call .venv\Scripts\activate.bat
 
 echo Installing dependencies...
-pip install -r requirements.txt
+pip install -q -r requirements.txt
 
-REM Check for .env file
 if not exist ".env" (
+    copy .env.example .env >nul
     echo.
-    echo WARNING: .env file not found!
-    echo Copying .env.template to .env...
-    copy .env.template .env
-    echo.
-    echo Please edit backend\.env and add your API keys:
-    echo   - GROQ_API_KEY (required)
-    echo   - DEEPGRAM_API_KEY (required)
-    echo.
+    echo Created backend\.env from .env.example. Add at least one chat key and one speech-to-text key, then run again.
+    echo   OLLAMA_API_KEY   chat + vision   ^(ollama.com/settings/keys^)
+    echo   GROQ_API_KEY     fast chat + Whisper speech-to-text
     pause
+    exit /b 1
 )
 
 echo.
-echo ========================================
-echo   Starting Backend Server
-echo ========================================
-echo.
-echo Server will start at: http://localhost:8000
-echo WebSocket endpoint: ws://localhost:8000/ws/interview
-echo.
-
+echo Checking providers ^(optional: python scripts\provider_check.py^)
+echo Server: http://127.0.0.1:8000
 python server.py
-
 pause

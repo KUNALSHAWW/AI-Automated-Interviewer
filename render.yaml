@@ -1,0 +1,29 @@
+# Render Blueprint: one free Docker web service serving API + WebSocket + frontend.
+# Free web services sleep after 15 min idle and have an ephemeral disk: sessions are kept only while the
+# instance lives, so download the PDF (or delete the session) when you are done.
+services:
+  - type: web
+    name: navai-viva
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: main
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: OLLAMA_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: ACCESS_CODE
+        sync: false
+      - key: TRUST_PROXY
+        value: "1"
+      - key: MAX_CONCURRENT_SESSIONS
+        value: "2"
+      - key: RETENTION_DAYS
+        value: "7"

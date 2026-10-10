@@ -43,3 +43,9 @@ backend/reports/*.json
 *.tmp
 *.temp
 .cache/
+
+# NavAI Viva runtime data and local environments
+backend/data/
+backend/.venv/
+*.sqlite3
+backend/.env
