@@ -21,8 +21,9 @@ def pytest_runtest_logreport(report):
     """On GitHub Actions, surface failures as annotations (visible without downloading logs)."""
     import os
     if report.failed and os.getenv("GITHUB_ACTIONS"):
-        text = (report.longreprtext or "")[-1200:].replace("%", "%25").replace("", "").replace("
-", "%0A")
+        text = (report.longreprtext or "")[-1200:]
+        for raw, enc in (("%", "%25"), (chr(13), ""), (chr(10), "%0A")):
+            text = text.replace(raw, enc)
         print(f"::error title={report.nodeid}::{text}")
 
 
