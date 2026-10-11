@@ -14,6 +14,7 @@ import re
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
+import dataclasses
 from dataclasses import asdict
 from typing import Literal
 
@@ -30,8 +31,9 @@ from .providers.llm import LLMClient
 from .providers.stt import STTClient
 from .rubrics import PRESETS, Rubric, resolve
 from .session import InterviewSession, _write_pdf, make_report
-from .settings import Settings
+from .settings import Settings, parse_chain
 from .store import Store
+from .vision import describe, sample_slide_jpeg
 
 log = logging.getLogger("navai")
 THUMB_RE = re.compile(r"^\d{1,3}\.jpg$")
@@ -67,6 +69,7 @@ def create_app(settings: Settings | None = None, *, llm: LLMClient | None = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")  # no-op if configured
         client = http or httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=8.0))
         app.state.http = client
         app.state.llm = llm or LLMClient(cfg, client)
@@ -142,14 +145,57 @@ def create_app(settings: Settings | None = None, *, llm: LLMClient | None = None
                 "active_sessions": len(app.state.active), "max_concurrent_sessions": cfg.max_concurrent_sessions}
 
     @app.get("/api/health/deep")
-    async def health_deep():
-        """Live check: one tiny call per configured provider. Throttled because it spends quota."""
+    async def health_deep(request: Request):
+        """Live check: one tiny call per configured provider. Spends quota, so it needs the access code when one
+        is configured (header X-Access-Code or ?access_code=) and is throttled."""
+        if cfg.access_code:
+            given = request.headers.get("x-access-code") or request.query_params.get("access_code", "")
+            if not hmac.compare_digest(given, cfg.access_code):
+                raise HTTPException(403, "Access code required")
         now = time.monotonic()
-        if now - deep_lock["last"] < 15:
+        if now - deep_lock["last"] < cfg.deep_check_interval_s:
             raise HTTPException(429, "Deep health check ran moments ago; wait a few seconds.")
         deep_lock["last"] = now
         seen, out = set(), []
         llm_: LLMClient = app.state.llm
+        # Benchmark arbitrary candidates: ?models=groq:qwen/qwen3.8-27b,ollama:gemma4:31b&stt_models=groq:whisper-large-v3
+        # Needs a configured ACCESS_CODE so an open deployment cannot be used to spend quota on arbitrary models.
+        wanted, wanted_stt = request.query_params.get("models"), request.query_params.get("stt_models")
+        wanted_vis = request.query_params.get("vision_models")
+        if wanted or wanted_stt or wanted_vis:
+            if not cfg.access_code:
+                raise HTTPException(403, "Set ACCESS_CODE to benchmark custom models")
+            try:
+                chat = parse_chain(wanted or "")[:8]
+                stts = parse_chain(wanted_stt or "")[:4]
+                viss = parse_chain(wanted_vis or "")[:4]
+            except ValueError as e:
+                raise HTTPException(400, str(e)) from None
+            for p, m in viss:
+                if not cfg.provider_ready(p):
+                    out.append({"kind": "vision", "provider": p, "model": m, "ok": False, "message": "no key for provider"})
+                    continue
+                one = dataclasses.replace(cfg, vision_chain=[(p, m)])
+                t0 = time.perf_counter()
+                try:
+                    seen_ = await describe(LLMClient(one, app.state.http), one, sample_slide_jpeg())
+                    out.append({"kind": "vision", "provider": p, "model": m, "ok": True,
+                                "latency_s": round(time.perf_counter() - t0, 2), "technologies": seen_["technologies"],
+                                "summary": seen_["summary"][:100], "numbers": seen_["numbers"]})
+                except Exception as e:  # noqa: BLE001 - report any failure of the candidate
+                    out.append({"kind": "vision", "provider": p, "model": m, "ok": False,
+                                "latency_s": round(time.perf_counter() - t0, 2), "message": str(e)[:200]})
+            for p, m in chat:
+                if not cfg.provider_ready(p):
+                    out.append({"kind": "chat", "provider": p, "model": m, "ok": False, "message": "no key for provider"})
+                else:
+                    out.append({"kind": "chat", "provider": p, "model": m, **(await llm_.probe(p, m))})
+            for p, m in stts:
+                if p not in ("groq", "openrouter") or not cfg.provider_ready(p):
+                    out.append({"kind": "stt", "provider": p, "model": m, "ok": False, "message": "unsupported or no key"})
+                else:
+                    out.append({"kind": "stt", "provider": p, "model": m, **(await app.state.stt.ping(p, m))})
+            return {"checked": out}
         for chain in (cfg.live_chain, cfg.vision_chain, cfg.council_chain):
             for p, m in cfg.chain_available(chain):
                 if (p, m) in seen:

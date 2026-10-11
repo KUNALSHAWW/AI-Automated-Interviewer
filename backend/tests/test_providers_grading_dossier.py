@@ -74,14 +74,29 @@ async def test_retired_model_is_reported_as_model_error(tmp_path):
 
 # -------------------------------------------------------------------------- STT
 async def test_stt_groq_success_and_openrouter_fallback(tmp_path, net, http):
-    cfg = make_settings(tmp_path)
+    chain = [("groq", "whisper-large-v3-turbo"), ("groq", "whisper-large-v3"),
+             ("openrouter", "openai/whisper-large-v3-turbo")]
+    cfg = make_settings(tmp_path, stt_chain=chain)
     stt = STTClient(cfg, http)
     r = await stt.transcribe(wav_bytes(2.0), language="en", prompt="Terms: FastAPI")
-    assert r.provider == "groq" and "FastAPI" in r.text and round(r.seconds, 1) == 2.0
+    assert r.provider == "groq" and r.model == "whisper-large-v3-turbo"
+    assert "FastAPI" in r.text and round(r.seconds, 1) == 2.0
 
-    cfg2 = make_settings(tmp_path, groq_api_key="")
+    cfg2 = make_settings(tmp_path, groq_api_key="", stt_chain=chain)
     r2 = await STTClient(cfg2, http).transcribe(wav_bytes(2.0))
     assert r2.provider == "openrouter"
+
+
+async def test_default_stt_chain_has_a_second_free_groq_model(tmp_path):
+    cfg = make_settings(tmp_path)
+    assert [m for _, m in cfg.stt_chain] == ["whisper-large-v3-turbo", "whisper-large-v3"]
+    assert all(p == "groq" for p, _ in cfg.stt_chain)    # no paid-only provider in the default path
+
+
+async def test_default_live_chain_avoids_reasoning_by_default_models(tmp_path):
+    cfg = make_settings(tmp_path)
+    models = [m for _, m in cfg.live_chain]
+    assert models[0] == "qwen/qwen3.8-27b" and not any("gpt-oss" in m for m in models)
 
 
 def test_whisper_silence_hallucinations_are_dropped():
@@ -164,7 +179,7 @@ async def test_dossier_detects_stack_tests_ci_and_skips_vendor_dirs(http):
     assert {"FastAPI", "Docker", "SQLAlchemy"} <= set(d.techs)
     assert d.has_tests and d.has_ci and d.has_docker
     assert not any("node_modules" in p for p in d.tree_sample)
-    assert d.languages.get("Python") == 3
+    assert d.languages.get("Python") == 4
     assert "40%" in d.readme and "evidence_text" not in d.public()
     assert d.probe_topics and d.brief.startswith("o/shop")
 
@@ -172,3 +187,26 @@ async def test_dossier_detects_stack_tests_ci_and_skips_vendor_dirs(http):
 async def test_private_repo_gives_a_clear_error(http):
     with pytest.raises(DossierError, match="private"):
         await build_dossier("https://github.com/o/private-repo", http)
+
+
+# ------------------------------------------------- reasoning models that spend max_tokens thinking
+async def test_empty_completion_from_exhausted_budget_is_retried_with_more_tokens(tmp_path):
+    budgets = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content)
+        budgets.append(body["max_tokens"])
+        if body["max_tokens"] < 200:   # all tokens went on hidden reasoning
+            return httpx.Response(200, json={"choices": [{"message": {"content": ""}, "finish_reason": "length"}]})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]})
+
+    llm = LLMClient(make_settings(tmp_path), httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    res = await llm.chat([("ollama", "gpt-oss:120b")], [{"role": "user", "content": "x"}], purpose="t", max_tokens=64)
+    assert res.text == "ok" and budgets == [64, 256]
+
+
+async def test_tool_names_in_source_text_are_not_evidence_of_use(http):
+    d = await build_dossier("https://github.com/o/shop", http, seed="s1")
+    assert "Kafka" not in d.techs and "Redis" not in d.techs      # only listed as strings in app/lexicon.py
+    assert "FastAPI" in d.techs                                    # backed by requirements.txt and an import
+    assert "Celery" in d.documented_techs and "Celery" not in d.techs   # README says so, nothing backs it up

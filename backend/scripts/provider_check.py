@@ -20,21 +20,7 @@ import httpx  # noqa: E402
 from app.providers.llm import LLMClient  # noqa: E402
 from app.providers.stt import STTClient  # noqa: E402
 from app.settings import Settings  # noqa: E402
-from app.vision import describe  # noqa: E402
-
-
-def _slide() -> bytes:
-    import io
-    from PIL import Image, ImageDraw, ImageFont
-    im = Image.new("RGB", (960, 540), "white")
-    d = ImageDraw.Draw(im)
-    f = ImageFont.load_default(size=44)
-    d.text((60, 60), "Architecture", fill="black", font=f)
-    d.text((60, 160), "FastAPI -> Redis -> PostgreSQL", fill="black", font=f)
-    d.text((60, 260), "p95 latency: 120 ms", fill="black", font=f)
-    buf = io.BytesIO()
-    im.save(buf, "JPEG", quality=85)
-    return buf.getvalue()
+from app.vision import describe, sample_slide_jpeg  # noqa: E402
 
 
 async def main() -> int:
@@ -68,7 +54,7 @@ async def main() -> int:
             one = Settings(**{**cfg.__dict__, "vision_chain": [(p, m)]})
             t0 = time.perf_counter()
             try:
-                out = await describe(LLMClient(one, http), one, _slide())
+                out = await describe(LLMClient(one, http), one, sample_slide_jpeg())
                 techs = out.get("technologies")
                 print(f"  [OK ] vision   {p}:{m:<40} {time.perf_counter() - t0:.2f}s  saw: {techs}")
             except Exception as e:  # noqa: BLE001

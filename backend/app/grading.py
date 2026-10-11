@@ -114,6 +114,7 @@ def build_packet(rubric: Rubric, dims: dict, flags: list[dict], claims: dict, sc
         lines.append("\nAUTOMATED CLAIM CHECKS vs repository")
         lines.append(f"- mentioned and supported: {', '.join(claims.get('supported', [])) or 'none'}")
         lines.append(f"- mentioned but not found in repository evidence: {', '.join(claims.get('not_found', [])) or 'none'}")
+        lines.append(f"- named in README only (no dependency/file/import): {', '.join(claims.get('documented_only', [])) or 'none'}")
         lines.append(f"- numeric claims without support: {', '.join(claims.get('unverified_metrics', [])) or 'none'}")
     if repo_brief:
         lines.append("\nREPOSITORY BRIEF\n" + repo_brief)
@@ -214,6 +215,9 @@ def finalize(rubric: Rubric, observations: list[dict], flags: list[dict], claims
         reasons.append(f"{len(flags)} consistency flag(s) were raised during the interview.")
     if claims.get("not_found"):
         reasons.append("Technologies mentioned but not found in the repository: " + ", ".join(claims["not_found"]) + ".")
+    if claims.get("documented_only"):
+        reasons.append("Technologies named in the README but not backed by any dependency, file or import: "
+                       + ", ".join(claims["documented_only"]) + ".")
     if len(grades) < 2:
         reasons.append("Fewer than two independent graders were available; treat the narrative with caution.")
 

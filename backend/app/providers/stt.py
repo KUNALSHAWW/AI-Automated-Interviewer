@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import re
 import time
+import logging
 from dataclasses import dataclass
 
 import httpx
@@ -16,6 +17,8 @@ import httpx
 from ..settings import Settings
 from .common import AllProvidersFailed, Breaker, ProviderError, Usage
 from .llm import _http_error
+
+log = logging.getLogger("navai.stt")
 
 # Whisper invents these on near-silence. Dropped when the clip is short or the model itself says "no speech".
 _HALLUCINATIONS = {
@@ -34,6 +37,7 @@ class STTResult:
     language: str | None
     dropped: bool = False
     reason: str = ""
+    latency_s: float = 0.0
 
 
 def wav_duration_s(wav: bytes) -> float:
@@ -70,6 +74,7 @@ class STTClient:
     async def transcribe(self, wav: bytes, *, language: str | None = None, prompt: str | None = None,
                          usage: Usage | None = None) -> STTResult:
         seconds = wav_duration_s(wav)
+        started = time.perf_counter()
         errors: list[ProviderError] = []
         for provider, model in self.cfg.stt_chain:
             key = (provider, model)
@@ -89,8 +94,12 @@ class STTClient:
             except ProviderError as err:
                 self.breaker.fail(key, err)
                 errors.append(err)
+                log.warning("stt %s:%s failed (%s: %s); trying next", provider, model, err.kind, err.message[:120])
                 continue
             self.breaker.ok(key)
+            res.latency_s = time.perf_counter() - started
+            log.info("stt %s:%s %.1fs of audio transcribed in %.2fs (%d attempts)", provider, model, seconds,
+                     res.latency_s, len(errors) + 1)
             self.usage.add_audio(provider, model, seconds)
             if usage is not None:
                 usage.add_audio(provider, model, seconds)

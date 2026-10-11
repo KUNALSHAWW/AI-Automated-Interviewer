@@ -11,11 +11,14 @@ import re
 import time
 from dataclasses import dataclass
 
+import logging
+
 import httpx
 
 from ..settings import Settings
 from .common import AllProvidersFailed, Breaker, ProviderError, Usage
 
+log = logging.getLogger("navai.llm")
 _THINK_RE = re.compile(r"<think>.*?</think>", re.S | re.I)
 
 
@@ -26,6 +29,7 @@ class ChatResult:
     model: str
     latency_s: float
     usage: dict
+    retried: bool = False  # True when the first attempt ran out of tokens on hidden reasoning
 
 
 class LLMClient:
@@ -68,6 +72,8 @@ class LLMClient:
             except ProviderError as err:
                 self.breaker.fail(key, err)
                 errors.append(err)
+                log.warning("%s: %s:%s failed (%s: %s); trying next in chain", purpose, provider, model, err.kind,
+                            err.message[:120])
                 continue
             self.breaker.ok(key)
             self.usage.add_chat(provider, model, res.usage)
@@ -81,13 +87,34 @@ class LLMClient:
         t0 = time.perf_counter()
         try:
             res = await self._call(provider, model, [{"role": "user", "content": "Reply with the single word: ok"}],
-                                   False, 16, 0.0, 20.0)
+                                   False, 128, 0.0, 30.0)
             return {"ok": True, "latency_s": round(res.latency_s, 2), "reply": res.text[:40]}
         except ProviderError as e:
             return {"ok": False, "latency_s": round(time.perf_counter() - t0, 2), **e.public()}
 
+    async def probe(self, provider: str, model: str) -> dict:
+        """A realistic interviewer turn (small JSON object) instead of a one-word ping: wall-clock latency,
+        completion tokens (a big number for a ~30-token answer means the model is thinking) and JSON validity."""
+        msgs = [{"role": "system", "content": "You are a terse interviewer. Reply with one JSON object only."},
+                {"role": "user", "content": 'Return {"action":"ask","message":"<one question under 20 words about '
+                                            'caching session tokens in Redis>","target":"design_tradeoffs"}'}]
+        t0 = time.perf_counter()
+        try:
+            res = await self._call(provider, model, msgs, True, 300, 0.2, 40.0)
+        except ProviderError as e:
+            return {"ok": False, "latency_s": round(time.perf_counter() - t0, 2), **e.public()}
+        try:
+            extract_json(res.text)
+            valid = True
+        except ValueError:
+            valid = False
+        return {"ok": True, "latency_s": round(time.perf_counter() - t0, 2),
+                "completion_tokens": (res.usage or {}).get("completion_tokens"), "valid_json": valid,
+                "needed_retry": res.retried, "reply": res.text[:110]}
+
     # ----------------------------------------------------------------- private
-    async def _call(self, provider, model, messages, json_mode, max_tokens, temperature, timeout) -> ChatResult:
+    async def _call(self, provider, model, messages, json_mode, max_tokens, temperature, timeout,
+                    boosted: bool = False) -> ChatResult:
         key = (provider, model)
         use_json = json_mode and key not in self._no_json_mode
         payload: dict = {"model": model, "messages": messages, "temperature": temperature,
@@ -95,7 +122,9 @@ class LLMClient:
         if use_json:
             payload["response_format"] = {"type": "json_object"}
         if provider == "groq" and model.startswith("openai/gpt-oss"):
-            payload["reasoning_effort"] = "low"  # keep live turns fast; gpt-oss otherwise burns tokens thinking
+            payload["reasoning_effort"] = "low"  # cannot be disabled on gpt-oss; "low" is the minimum
+        elif provider == "groq" and model.startswith("qwen/"):
+            payload["reasoning_effort"] = "none"  # documented: "The model will not use any reasoning tokens"
         headers = {"Content-Type": "application/json"}
         api_key = self.cfg.api_key(provider)
         if api_key:
@@ -116,20 +145,26 @@ class LLMClient:
             body = r.text[:400]
             if r.status_code == 400 and use_json and ("response_format" in body or "json" in body.lower()):
                 self._no_json_mode.add(key)  # this model rejects JSON mode; fall back to prompt-only JSON
-                return await self._call(provider, model, messages, json_mode, max_tokens, temperature, timeout)
+                return await self._call(provider, model, messages, json_mode, max_tokens, temperature, timeout, boosted)
             raise _http_error(provider, model, r, body)
 
         try:
             data = r.json()
-            text = data["choices"][0]["message"].get("content") or ""
+            choice = data["choices"][0]
+            text = choice["message"].get("content") or ""
         except (ValueError, KeyError, IndexError, TypeError):
             raise ProviderError(provider, model, "bad_response", f"unexpected body: {r.text[:200]}") from None
         text = _THINK_RE.sub("", text).strip()
         if not text:
+            # Reasoning models (gpt-oss, kimi, glm...) count their hidden thinking against max_tokens. When the
+            # budget ran out before any answer, retry once with a larger one instead of failing the turn.
+            if not boosted and max_tokens < 4096 and choice.get("finish_reason") in ("length", None, ""):
+                return await self._call(provider, model, messages, json_mode, min(4096, max_tokens * 4),
+                                        temperature, timeout, boosted=True)
             raise ProviderError(provider, model, "bad_response",
                                 "empty completion (model may have spent max_tokens on reasoning)")
         return ChatResult(text=text, provider=provider, model=model, latency_s=time.perf_counter() - t0,
-                          usage=data.get("usage") or {})
+                          usage=data.get("usage") or {}, retried=boosted)
 
 
 def _http_error(provider: str, model: str, r: httpx.Response, body: str) -> ProviderError:

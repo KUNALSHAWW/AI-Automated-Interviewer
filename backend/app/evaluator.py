@@ -132,6 +132,9 @@ def build_user_prompt(ctx: TurnContext) -> str:
     checks = []
     if cc.get("not_found"):
         checks.append("Technologies the presenter named that were NOT found in repository evidence: " + ", ".join(cc["not_found"]))
+    if cc.get("documented_only"):
+        checks.append("Technologies named in the README only (no dependency, file or import backs them up): "
+                      + ", ".join(cc["documented_only"]))
     if cc.get("unverified_metrics"):
         checks.append("Numeric claims with no support in README or screen: " + ", ".join(cc["unverified_metrics"]))
     if checks:

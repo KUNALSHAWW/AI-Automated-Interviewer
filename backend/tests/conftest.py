@@ -63,17 +63,21 @@ REPO_TREE = {
     "tree": [
         {"path": "README.md", "type": "blob"}, {"path": "requirements.txt", "type": "blob"},
         {"path": "Dockerfile", "type": "blob"}, {"path": "app/main.py", "type": "blob"},
-        {"path": "app/routes.py", "type": "blob"}, {"path": "tests/test_api.py", "type": "blob"},
+        {"path": "app/routes.py", "type": "blob"}, {"path": "app/lexicon.py", "type": "blob"},
+        {"path": "tests/test_api.py", "type": "blob"},
         {"path": ".github/workflows/ci.yml", "type": "blob"}, {"path": "node_modules/x/index.js", "type": "blob"},
     ],
     "truncated": False,
 }
 RAW = {
-    "README.md": "# Shop API\nA FastAPI service for orders. Latency improved by 40% after batching.\n",
+    "README.md": "# Shop API\nA FastAPI service for orders. Latency improved by 40% after batching.\n"
+                 "Background jobs run on Celery workers.\n",
     "requirements.txt": "fastapi\nuvicorn\nsqlalchemy\n",
     "Dockerfile": "FROM python:3.12\nCMD uvicorn app.main:app\n",
     "app/main.py": "# entrypoint\nfrom fastapi import FastAPI\napp = FastAPI()\n",
     "app/routes.py": "from fastapi import APIRouter\nrouter = APIRouter()\n",
+    # a data file that merely LISTS tool names: must never count as "the project uses Kafka/Redis"
+    "app/lexicon.py": "TOOLS = ['Kafka', 'Redis', 'MongoDB', 'Kubernetes']\n",
 }
 
 

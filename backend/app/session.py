@@ -30,7 +30,7 @@ from .providers.stt import STTClient
 from .rubrics import Rubric
 from .settings import Settings
 from .store import Store
-from .techlex import check_claims
+from .techlex import check_claims, normalize_transcript
 from .vision import ChangeDetector, describe, thumbnail
 
 log = logging.getLogger("navai.session")
@@ -87,7 +87,8 @@ class InterviewSession:
         self._dropped = 0
         self._utterances = 0
         self._seen_obs: set[tuple] = set()
-        self._claims_seen = {"supported": set(), "not_found": set(), "unverified_metrics": set()}
+        self._claims_seen = {"supported": set(), "documented_only": set(), "not_found": set(),
+                             "unverified_metrics": set()}
 
         # turn taking
         self._consumed_upto = 0
@@ -245,7 +246,8 @@ class InterviewSession:
                     continue
                 self._utterances += 1
                 if res.text:
-                    await self._add_segment(res.text, max(0.0, arrived - res.seconds), "speech")
+                    await self._add_segment(res.text, max(0.0, arrived - res.seconds), "speech",
+                                            stt_s=round(res.latency_s, 2))
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -254,13 +256,13 @@ class InterviewSession:
                 self._transcribing -= 1
                 self._utt_q.task_done()
 
-    async def _add_segment(self, text: str, t: float, source: str) -> None:
-        seg = Segment(id=len(self.segments) + 1, text=text.strip(), t=round(t, 1))
+    async def _add_segment(self, text: str, t: float, source: str, stt_s: float | None = None) -> None:
+        seg = Segment(id=len(self.segments) + 1, text=normalize_transcript(text.strip()), t=round(t, 1))
         self.segments.append(seg)
         self._words_since_ai += word_count(seg.text)
         self._last_speech_at = self._clock()
         self._invited = self._invited or is_invitation(seg.text)
-        await self._emit("transcript", id=seg.id, text=seg.text, source=source, at=seg.t)
+        await self._emit("transcript", id=seg.id, text=seg.text, source=source, at=seg.t, stt_s=stt_s)
 
     # ------------------------------------------------------------ vision worker
     async def _vision_loop(self) -> None:
@@ -343,8 +345,8 @@ class InterviewSession:
                 return
             spoken = " ".join(s.text for s in segs)
             screen_text = self._screen_text()
-            claim = (check_claims(spoken, self.dossier.evidence_text, set(self.dossier.techs), screen_text)
-                     if self.dossier else {})
+            claim = (check_claims(spoken, self.dossier.evidence_text, set(self.dossier.techs), screen_text,
+                                  set(self.dossier.documented_techs)) if self.dossier else {})
             cov = Counter(o["dimension"] for o in self.observations)
             left = [p for p in (self.dossier.probe_topics if self.dossier else []) if p not in self._probe_used]
             ctx = TurnContext(rubric=self.rubric, segments=segs or self.segments[-3:], language=self.language,
@@ -363,7 +365,8 @@ class InterviewSession:
             if res.action in ("ask", "acknowledge") and res.message:
                 if res.action == "ask":
                     self.asked.append({"question": res.message, "t": round(self._now(), 1), "target": res.target,
-                                       "reason": reason, "model": res.model, "fixes": res.fixes})
+                                       "reason": reason, "model": res.model, "fixes": res.fixes,
+                                       "eval_s": round(res.latency_s, 2)})
                     self._probe_used |= {p for p in left if res.target and res.target.lower() in p.lower()}
                 await self._say(res.message, kind="question" if res.action == "ask" else "ack")
                 self._consumed_upto = segs[-1].id if segs else self._consumed_upto
@@ -463,12 +466,21 @@ async def make_report(llm: LLMClient, cfg: Settings, rubric: Rubric, state: dict
     spoken = " ".join(s["text"] for s in state["segments"])
     screen_text = " ".join(" ".join([s.get("title", ""), s.get("summary", ""), *s.get("visible_text", []),
                                      *s.get("technologies", [])]) for s in state["screens"] if s.get("analysis") == "ok")
-    claims = (check_claims(spoken, dossier.get("evidence_text", ""), set(dossier.get("techs", [])), screen_text)
-              if dossier else {})
+    claims = (check_claims(spoken, dossier.get("evidence_text", ""), set(dossier.get("techs", [])), screen_text,
+                           set(dossier.get("documented_techs", []))) if dossier else {})
     flags = list(state["flags"])
+
+    def _already_flagged(tech: str) -> bool:  # the interviewer model often raised the same point in its own words
+        return any(tech.lower() in f["detail"].lower() for f in flags)
+
     for tech in claims.get("not_found", []):
-        flags.append({"kind": "speech_vs_repo", "t": 0.0, "quote": "",
-                      "detail": f"'{tech}' was mentioned but no trace of it was found in the repository sample."})
+        if not _already_flagged(tech):
+            flags.append({"kind": "speech_vs_repo", "t": 0.0, "quote": "",
+                          "detail": f"'{tech}' was mentioned but no trace of it was found in the repository sample."})
+    for tech in claims.get("documented_only", []):
+        if not _already_flagged(tech):
+            flags.append({"kind": "speech_vs_repo", "t": 0.0, "quote": "",
+                          "detail": f"'{tech}' is named in the README but no dependency, file or import backs it up."})
     brief = dossier.get("brief", "") if dossier else ""
     dims_preview = aggregate(rubric, state["observations"])
     packet = build_packet(rubric, dims_preview, flags, claims, [s for s in state["screens"] if s.get("analysis") == "ok"],
