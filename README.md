@@ -85,6 +85,16 @@ cd backend && python scripts/provider_check.py
 It makes one tiny call per configured model (including a vision call on a generated slide and a one-second STT call)
 and tells you which entries work and what to change in `.env`.
 
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.10+, FastAPI, WebSocket (uvicorn), httpx, pydantic, SQLite, Pillow, ReportLab |
+| Frontend | React 18, Vite, Tailwind CSS, Web Speech API, AudioWorklet (browser voice-activity detection) |
+| AI providers | Groq (Whisper, Qwen 3.8), Ollama Cloud (Gemma 4, Mistral Large 3), OpenRouter, all over OpenAI-compatible HTTP |
+| Delivery | Docker (multi-stage), Render, GitHub Actions (Python 3.10 to 3.13 and Node 22) |
+| Tests | pytest (54 backend tests), `node --test` (9 frontend tests) |
+
 ## Quick start
 
 Requirements: Python 3.10+ (test suite run on 3.10 and 3.13), Node 20+.
