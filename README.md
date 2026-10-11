@@ -62,10 +62,16 @@ flowchart LR
 
 | Need | Provider | Notes |
 |---|---|---|
-| Interviewer (live) | Groq `openai/gpt-oss-20b` → Ollama Cloud `gemma4:31b` → OpenRouter `google/gemma-4-31b-it:free` | all OpenAI-compatible `/chat/completions` |
-| Vision | Ollama Cloud `gemma4:31b` → OpenRouter free `google/gemma-4-31b-it:free` → `kimi-k2.6` | Groq's model list currently shows no vision model |
-| Grading council | Ollama Cloud `gpt-oss:120b`, `gemma4:31b`, `glm-5.3-flash` (+ Groq `openai/gpt-oss-120b`) | up to `COUNCIL_SIZE` distinct models in parallel |
-| Speech-to-text | Groq `whisper-large-v3-turbo` → OpenRouter `openai/whisper-large-v3-turbo` | **Ollama has no STT endpoint** (none in its OpenAI-compatible API docs; `gemma4` audio input is documented only for the small checkpoints, while the cloud tag list shows 31B) |
+| Interviewer (live) | Groq `qwen/qwen3.8-27b` (reasoning off) → Ollama Cloud `gemma4:31b` → `mistral-large-3:675b` → OpenRouter free | non-thinking models only on the live path |
+| Vision | Groq `qwen/qwen3.8-27b` → Ollama Cloud `gemma4:31b` → OpenRouter free `gemma-4-31b-it` | Qwen 3.8 on Groq reads images |
+| Grading council | Ollama Cloud `gemma4:31b`, Groq `qwen/qwen3.8-27b`, Ollama `mistral-large-3:675b` (+ `glm-5.3-flash`) | up to `COUNCIL_SIZE` distinct families in parallel |
+| Speech-to-text | Groq `whisper-large-v3-turbo` → Groq `whisper-large-v3` | both free; **Ollama has no STT endpoint**; OpenRouter STT is paid-only (HTTP 402 without credits) so it is opt-in |
+
+Measured live on 2026-10-11 with a realistic JSON interviewer turn (latency / completion tokens): Groq `qwen/qwen3.8-27b`
+0.23 s / 30, Ollama `gemma4:31b` 0.9 s / 38, `mistral-large-3:675b` 1.9 s / 44. Reasoning-by-default models were
+slower and are avoided on the live path: Ollama `gpt-oss:20b` 3.2 s / 207, `nemotron-3-nano:30b` 7.4 s / 606.
+Groq `llama-3.1-8b-instant` returned HTTP 404 (retired). On a 26-second speech clip, Groq Whisper turbo took 0.36 s.
+`qwen/qwen3.8-27b` is a Groq *preview* model, so the chain falls back to Ollama if it disappears.
 
 The previous defaults (`llama-4-scout-17b-16e-instruct`, `llama-3.1-8b-instant`, `llama-3.3-70b-versatile`) are listed on
 [Groq's deprecation page](https://console.groq.com/docs/deprecations) with shutdown dates of 2026-07-17 and 2026-08-16.
@@ -149,7 +155,7 @@ with no support, consistency flags, slide thumbnails, token and audio usage, and
 ## Tests
 
 ```bash
-cd backend && pip install -r requirements-dev.txt && python -m pytest -q     # 46 tests
+cd backend && pip install -r requirements-dev.txt && python -m pytest -q     # 54 tests
 cd frontend && npm test                                                      # 9 tests
 ```
 
